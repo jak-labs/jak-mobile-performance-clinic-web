@@ -1,23 +1,29 @@
 "use client"
 
 import { useEffect } from "react"
+import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import ScheduleContent from "@/components/schedule-content"
 
 export default function Home() {
+  const { data: session, status } = useSession()
   const router = useRouter()
 
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem("isAuthenticated")
-
-    if (!isAuthenticated || isAuthenticated !== "true") {
+    if (status === "unauthenticated") {
       router.push("/sign-in")
     }
-  }, [router])
+  }, [status, router])
 
-  const isAuthenticated = typeof window !== "undefined" && localStorage.getItem("isAuthenticated") === "true"
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
 
-  if (!isAuthenticated) {
+  if (status === "unauthenticated") {
     return null
   }
 

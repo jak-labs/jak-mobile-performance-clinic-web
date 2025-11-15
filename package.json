@@ -48,7 +48,11 @@
     "input-otp": "1.4.1",
     "lucide-react": "^0.454.0",
     "next": "15.5.4",
+    "next-auth": "^4.24.11",
     "next-themes": "^0.4.6",
+    "amazon-cognito-identity-js": "^6.3.15",
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/lib-dynamodb": "^3.700.0",
     "react": "19.1.0",
     "react-day-picker": "latest",
     "react-dom": "19.1.0",
@@ -58,7 +62,6 @@
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
-    "vaul": "^0.9.9",
     "zod": "3.25.67"
   },
   "devDependencies": {

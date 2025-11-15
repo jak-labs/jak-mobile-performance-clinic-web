@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { signOut } from "next-auth/react"
 import { Menu, LogOut } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -23,8 +24,15 @@ const navItems = [
 
 export default function Navigation() {
   const pathname = usePathname()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const { v2Enabled, setV2Enabled } = useV2()
+
+  const handleSignOut = async () => {
+    setOpen(false)
+    await signOut({ redirect: false })
+    router.push("/sign-in")
+  }
 
   const visibleNavItems = navItems.filter((item) => !item.v2Only || v2Enabled)
 
@@ -93,14 +101,13 @@ export default function Navigation() {
 
             {/* Sign out button section */}
             <div className="p-4 border-t border-border/40">
-              <Link
-                href="/sign-in"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-lg text-base font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-base font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
               >
                 <LogOut className="size-5" />
                 Sign Out
-              </Link>
+              </button>
             </div>
 
             {/* Footer section */}
