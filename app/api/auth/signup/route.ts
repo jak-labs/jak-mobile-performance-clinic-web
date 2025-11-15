@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CognitoUserPool, CognitoUserAttribute } from 'amazon-cognito-identity-js';
-import { saveUserProfile } from '@/lib/dynamodb';
+import { CognitoIdentityProviderClient, AdminAddUserToGroupCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { getSubjectByInviteToken, migratePendingSubjectToActive } from '@/lib/dynamodb-subjects';
 
 if (!process.env.COGNITO_CLIENT_ID || !process.env.COGNITO_ISSUER) {
   throw new Error('Missing required environment variables for Cognito authentication');
@@ -19,9 +20,20 @@ const poolData = {
 
 const userPool = new CognitoUserPool(poolData);
 
+// Initialize Cognito Identity Provider client for group management
+const cognitoClient = new CognitoIdentityProviderClient({
+  region: process.env.AWS_REGION || 'us-east-2',
+  credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+    ? {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      }
+    : undefined,
+});
+
 export async function POST(req: NextRequest) {
   try {
-    const { email, password, fullName, practiceName } = await req.json();
+    const { email, password, fullName, userType, inviteToken } = await req.json();
 
     if (!email || !password) {
       return NextResponse.json(
@@ -54,7 +66,7 @@ export async function POST(req: NextRequest) {
       //   attributeList.push(new CognitoUserAttribute({ Name: 'custom:practiceName', Value: practiceName }));
       // }
 
-      userPool.signUp(email, password, attributeList, [], (err, result) => {
+      userPool.signUp(email, password, attributeList, [], async (err, result) => {
         if (err) {
           console.error('Cognito signup error:', err);
           resolve(
@@ -76,39 +88,44 @@ export async function POST(req: NextRequest) {
           return;
         }
 
-        // Save user profile to DynamoDB
-        saveUserProfile({
-          userId: result.userSub,
-          email,
-          fullName: fullName || undefined,
-          practiceName: practiceName || undefined,
-        })
-          .then(() => {
-            resolve(
-              NextResponse.json(
-                {
-                  message: 'Account created successfully. Please check your email to verify your account.',
-                  userSub: result.userSub,
-                },
-                { status: 201 }
-              )
-            );
-          })
-          .catch((dbError) => {
-            // Log the error but don't fail the signup since Cognito user was created
-            console.error('Error saving user profile to DynamoDB:', dbError);
-            // Still return success since Cognito signup succeeded
-            resolve(
-              NextResponse.json(
-                {
-                  message: 'Account created successfully. Please check your email to verify your account.',
-                  userSub: result.userSub,
-                  warning: 'User profile could not be saved to database. Please contact support.',
-                },
-                { status: 201 }
-              )
-            );
-          });
+        // Handle invite token if present
+        if (inviteToken) {
+          try {
+            // Migrate pending subject to active with real Cognito sub
+            await migratePendingSubjectToActive(inviteToken, result.userSub);
+          } catch (inviteError: any) {
+            console.error('Error processing invite token:', inviteError);
+            // Continue even if invite processing fails - user can still sign up
+          }
+        }
+
+        // Add user to appropriate Cognito group
+        const groupName = userType === 'member' ? 'Member' : 'Coach';
+        try {
+          await cognitoClient.send(
+            new AdminAddUserToGroupCommand({
+              UserPoolId: userPoolId,
+              Username: email,
+              GroupName: groupName,
+            })
+          );
+        } catch (groupError: any) {
+          console.error('Error adding user to group:', groupError);
+          // Continue even if group assignment fails - user can be added manually
+        }
+
+        // Store userType temporarily - will be used during email verification
+        // We'll save to DynamoDB after email verification
+        resolve(
+          NextResponse.json(
+            {
+              message: 'Account created successfully. Please check your email to verify your account.',
+              userSub: result.userSub,
+              userType: userType || 'coach',
+            },
+            { status: 201 }
+          )
+        );
       });
     });
   } catch (error: any) {

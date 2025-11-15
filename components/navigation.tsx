@@ -2,9 +2,9 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { signOut } from "next-auth/react"
+import { signOut, useSession } from "next-auth/react"
 import { Menu, LogOut } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import Image from "next/image"
 import { useV2 } from "@/lib/v2-context"
 
-const navItems = [
+const coachNavItems = [
   { name: "Schedule", href: "/" },
   { name: "Clients", href: "/clients" },
   { name: "Offline Programs", href: "/offline-programs", v2Only: true },
@@ -22,11 +22,36 @@ const navItems = [
   { name: "Coach Profile", href: "/profile" },
 ]
 
+const memberNavItems = [
+  { name: "Schedule", href: "/" },
+  { name: "Member Profile", href: "/member-profile" },
+]
+
 export default function Navigation() {
   const pathname = usePathname()
   const router = useRouter()
+  const { data: session } = useSession()
   const [open, setOpen] = useState(false)
+  const [isMember, setIsMember] = useState(false)
   const { v2Enabled, setV2Enabled } = useV2()
+
+  // Fetch user groups to determine navigation items
+  useEffect(() => {
+    const fetchUserGroups = async () => {
+      try {
+        const response = await fetch("/api/auth/user-groups")
+        if (response.ok) {
+          const data = await response.json()
+          setIsMember(data.isMember || false)
+        }
+      } catch (error) {
+        console.error("Error fetching user groups:", error)
+      }
+    }
+    if (session) {
+      fetchUserGroups()
+    }
+  }, [session])
 
   const handleSignOut = async () => {
     setOpen(false)
@@ -34,6 +59,7 @@ export default function Navigation() {
     router.push("/sign-in")
   }
 
+  const navItems = isMember ? memberNavItems : coachNavItems
   const visibleNavItems = navItems.filter((item) => !item.v2Only || v2Enabled)
 
   const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up"
@@ -67,12 +93,14 @@ export default function Navigation() {
                 <Image src="/jak-labs-logo.png" alt="JAK Labs" width={120} height={40} className="h-10 w-auto" />
               </Link>
 
-              <div className="flex items-center justify-between">
-                <Label htmlFor="v2-toggle" className="text-sm text-muted-foreground cursor-pointer">
-                  v2 Features
-                </Label>
-                <Switch id="v2-toggle" checked={v2Enabled} onCheckedChange={setV2Enabled} />
-              </div>
+              {!isMember && (
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="v2-toggle" className="text-sm text-muted-foreground cursor-pointer">
+                    v2 Features
+                  </Label>
+                  <Switch id="v2-toggle" checked={v2Enabled} onCheckedChange={setV2Enabled} />
+                </div>
+              )}
             </div>
 
             {/* Navigation items */}

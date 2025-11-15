@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { AlertCircle, CheckCircle2 } from "lucide-react"
 
 export default function SignUpPage() {
@@ -18,6 +19,7 @@ export default function SignUpPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [userType, setUserType] = useState<"coach" | "member">("coach")
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -25,6 +27,20 @@ export default function SignUpPage() {
   const [isVerifying, setIsVerifying] = useState(false)
   const [isResending, setIsResending] = useState(false)
   const [isVerified, setIsVerified] = useState(false)
+  const [inviteToken, setInviteToken] = useState<string | null>(null)
+
+  // Check for invite parameters in URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const invite = params.get("invite")
+    const inviteEmail = params.get("email")
+    
+    if (invite && inviteEmail) {
+      setInviteToken(invite)
+      setEmail(inviteEmail)
+      setUserType("member") // Invites are always for members
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -56,6 +72,8 @@ export default function SignUpPage() {
           email,
           password,
           fullName,
+          userType,
+          inviteToken: inviteToken || undefined,
         }),
       })
 
@@ -95,6 +113,7 @@ export default function SignUpPage() {
         body: JSON.stringify({
           email,
           code: verificationCode,
+          fullName,
         }),
       })
 
@@ -160,7 +179,6 @@ export default function SignUpPage() {
             <Image src="/jak-labs-logo.png" alt="JAK Labs" width={120} height={60} className="object-contain" />
           </div>
           <CardTitle className="text-2xl font-bold">Create Your Account</CardTitle>
-          <CardDescription>Join JAK Labs to start coaching your athletes</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
@@ -234,6 +252,31 @@ export default function SignUpPage() {
             </>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
+              {inviteToken ? (
+                <Alert variant="default" className="border-blue-500 bg-blue-50">
+                  <AlertDescription className="text-blue-800">
+                    You've been invited to join! Please complete your registration below.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="flex justify-center">I am a</Label>
+                  <RadioGroup value={userType} onValueChange={(value) => setUserType(value as "coach" | "member")} className="flex gap-6 justify-center">
+                    <div className="flex items-center space-x-3">
+                      <RadioGroupItem value="coach" id="coach" className="h-6 w-6" />
+                      <Label htmlFor="coach" className="cursor-pointer font-normal text-lg">
+                        I'm a Coach
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <RadioGroupItem value="member" id="member" className="h-6 w-6" />
+                      <Label htmlFor="member" className="cursor-pointer font-normal text-lg">
+                        I'm a Member
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="fullName">Full Name</Label>
                 <Input
@@ -254,6 +297,7 @@ export default function SignUpPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  disabled={!!inviteToken}
                 />
               </div>
               <div className="space-y-2">

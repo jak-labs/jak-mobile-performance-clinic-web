@@ -6,18 +6,41 @@ import { Button } from "@/components/ui/button"
 import ScheduleSessionPanel from "@/components/schedule-session-panel"
 import SessionDetailsPanel from "@/components/session-details-panel"
 import { type Session } from "@/lib/sessions-data"
+import { useSession } from "next-auth/react"
 
 export default function ScheduleContent() {
+  const { data: session } = useSession()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [isSchedulePanelOpen, setIsSchedulePanelOpen] = useState(false)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoadingSessions, setIsLoadingSessions] = useState(true)
+  const [isCoach, setIsCoach] = useState(true) // Default to coach, will be updated
+
+  // Fetch user groups to determine if user is a coach
+  useEffect(() => {
+    const fetchUserGroups = async () => {
+      try {
+        const response = await fetch("/api/auth/user-groups")
+        if (response.ok) {
+          const data = await response.json()
+          setIsCoach(data.isCoach || false)
+        }
+      } catch (error) {
+        console.error("Error fetching user groups:", error)
+      }
+    }
+    if (session) {
+      fetchUserGroups()
+    }
+  }, [session])
 
   // Fetch sessions from DynamoDB on component mount and when month changes
   useEffect(() => {
-    fetchSessions()
-  }, [currentDate])
+    if (session) {
+      fetchSessions()
+    }
+  }, [currentDate, session])
 
   const fetchSessions = async () => {
     setIsLoadingSessions(true)
@@ -45,13 +68,24 @@ export default function ScheduleContent() {
         const minutes = sessionDate.getMinutes()
         const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
         
+        // Get client names from subject_id or subject_ids
+        const clients: string[] = []
+        if (dbSession.subject_id) {
+          // For single sessions, we'd need to look up the client name
+          // For now, just use the subject_id
+          clients.push(dbSession.subject_id)
+        }
+        if (dbSession.subject_ids && Array.isArray(dbSession.subject_ids)) {
+          clients.push(...dbSession.subject_ids)
+        }
+        
         return {
           id: dbSession.session_id,
           title: dbSession.title,
           date: sessionDate,
           time: timeString,
           type: dbSession.session_type === "single" ? "1:1" : "group",
-          clients: [], // We'll need to fetch client names separately if needed
+          clients: clients,
           link: `/session/${dbSession.session_id}`,
           status: dbSession.status || "scheduled",
         }
@@ -168,10 +202,12 @@ export default function ScheduleContent() {
               <Button variant="outline" size="icon" onClick={() => navigateMonth("next")}>
                 <ChevronRight className="size-4" />
               </Button>
-              <Button onClick={handleOpenSchedulePanel} size="default" className="gap-2 ml-2">
-                <Plus className="size-4" />
-                Schedule
-              </Button>
+              {isCoach && (
+                <Button onClick={handleOpenSchedulePanel} size="default" className="gap-2 ml-2">
+                  <Plus className="size-4" />
+                  Schedule
+                </Button>
+              )}
             </div>
           </div>
 

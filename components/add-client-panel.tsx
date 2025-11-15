@@ -3,13 +3,15 @@
 import type React from "react"
 
 import { useState } from "react"
-import { ChevronRight, CreditCard, User, FileText, Package } from "lucide-react"
+import { ChevronRight, CreditCard, User, FileText, Package, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertCircle, CheckCircle2 } from "lucide-react"
 import { useV2 } from "@/lib/v2-context"
 
 interface AddClientPanelProps {
@@ -31,24 +33,62 @@ export default function AddClientPanel({ isOpen, onClose }: AddClientPanelProps)
     cardCvv: "",
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log("[v0] Adding new client:", formData)
-    // Here you would typically send the data to your backend
-    // The jak platform will process the payment
-    alert("Client added successfully! Payment will be processed by jak platform.")
-    // Reset form
-    setFormData({
-      name: "",
-      email: "",
-      sportType: "",
-      notes: "",
-      plan: "standard",
-      cardNumber: "",
-      cardExpiry: "",
-      cardCvv: "",
-    })
-    onClose()
+    setError("")
+    setSuccess("")
+    setIsSubmitting(true)
+
+    try {
+      const response = await fetch("/api/clients/invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          sportType: formData.sportType || undefined,
+          notes: formData.notes || undefined,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || "Failed to add client")
+        setIsSubmitting(false)
+        return
+      }
+
+      setSuccess("Client added successfully! Invitation email has been sent.")
+      
+      // Reset form
+      setFormData({
+        name: "",
+        email: "",
+        sportType: "",
+        notes: "",
+        plan: "standard",
+        cardNumber: "",
+        cardExpiry: "",
+        cardCvv: "",
+      })
+
+      // Close panel after 2 seconds
+      setTimeout(() => {
+        onClose()
+        setSuccess("")
+      }, 2000)
+    } catch (err: any) {
+      setError(err.message || "An error occurred while adding the client")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleInputChange = (field: string, value: string) => {
@@ -83,6 +123,18 @@ export default function AddClientPanel({ isOpen, onClose }: AddClientPanelProps)
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-6">
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert variant="default" className="mb-4 border-green-500 bg-green-50">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800">{success}</AlertDescription>
+            </Alert>
+          )}
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Client Information Section */}
             <div className="space-y-4">
@@ -264,8 +316,15 @@ export default function AddClientPanel({ isOpen, onClose }: AddClientPanelProps)
 
             {/* Submit Button */}
             <div className="pt-4 border-t border-border">
-              <Button type="submit" className="w-full" size="lg">
-                {v2Enabled ? "Add Client & Process Payment" : "Add Client"}
+              <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending Invitation...
+                  </>
+                ) : (
+                  v2Enabled ? "Add Client & Process Payment" : "Add Client"
+                )}
               </Button>
             </div>
           </form>

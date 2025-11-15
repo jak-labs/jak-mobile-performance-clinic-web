@@ -62,8 +62,7 @@ function SignInForm() {
           <div className="flex justify-center mb-2">
             <Image src="/jak-labs-logo.png" alt="JAK Labs" width={120} height={60} className="object-contain" />
           </div>
-          <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your coach account to continue</CardDescription>
+              <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -119,18 +118,12 @@ function SignInForm() {
           </CardContent>
         </form>
         <CardFooter className="flex flex-col space-y-4">
-          <div className="text-sm text-center text-muted-foreground">
-            Don't have an account?{" "}
-            <Link href="/sign-up" className="font-medium text-foreground hover:underline">
-              Sign up
-            </Link>
-          </div>
-          <div className="text-sm text-center text-muted-foreground">
-            Need to verify your email?{" "}
-            <Link href="/verify-email" className="font-medium text-foreground hover:underline">
-              Verify email
-            </Link>
-          </div>
+              <div className="text-sm text-center text-muted-foreground">
+                Don't have an account?{" "}
+                <Link href="/sign-up" className="font-medium text-foreground hover:underline">
+                  Sign up
+                </Link>
+              </div>
           <div className="text-xs text-center text-muted-foreground">Powered by JAK Labs</div>
         </CardFooter>
       </Card>

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { createSession } from '@/lib/dynamodb-schedules';
 import { randomUUID } from 'crypto';
+import { RoomServiceClient } from 'livekit-server-sdk';
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,6 +61,28 @@ export async function POST(req: NextRequest) {
     // Generate unique session ID
     const sessionId = randomUUID();
 
+    // Create LiveKit room for this session
+    let livekitRoomName = `session-${sessionId}`;
+    try {
+      const livekitUrl = process.env.LIVEKIT_URL;
+      const livekitApiKey = process.env.LIVEKIT_API_KEY;
+      const livekitApiSecret = process.env.LIVEKIT_API_SECRET;
+
+      if (livekitUrl && livekitApiKey && livekitApiSecret) {
+        const roomService = new RoomServiceClient(livekitUrl, livekitApiKey, livekitApiSecret);
+        const room = await roomService.createRoom({
+          name: livekitRoomName,
+          emptyTimeout: 10 * 60, // 10 minutes
+          maxParticipants: 20,
+        });
+        livekitRoomName = room.name;
+      }
+    } catch (error: any) {
+      // If room already exists or creation fails, continue with the room name
+      console.warn('LiveKit room creation warning:', error.message);
+      // Room might already exist, which is fine
+    }
+
     // Prepare session data
     // sessionType is already converted to "single" or "group" from frontend
     const sessionData: any = {
@@ -71,6 +94,7 @@ export async function POST(req: NextRequest) {
       duration: parseInt(duration, 10),
       notes: notes || undefined,
       status: 'scheduled',
+      livekit_room_name: livekitRoomName,
     };
 
     // Add subject_id for single sessions, subject_ids for group sessions

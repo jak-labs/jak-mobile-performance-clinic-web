@@ -11,18 +11,12 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
+import { type Session } from "@/lib/sessions-data"
 
 interface ScheduleSessionPanelProps {
   isOpen: boolean
   onClose: () => void
-  onAddSession: (session: {
-    id: string
-    title: string
-    date: Date
-    time: string
-    type: "1:1" | "group"
-    clients: string[]
-  }) => void
+  onAddSession: (session: Session) => void
 }
 
 interface Client {

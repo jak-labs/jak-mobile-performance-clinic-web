@@ -28,6 +28,7 @@ export interface ScheduleSession {
   duration: number; // Duration in minutes
   notes?: string;
   status?: "scheduled" | "completed" | "cancelled" | "rescheduled";
+  livekit_room_name?: string; // LiveKit room name for video sessions
   created_at: string; // ISO 8601 timestamp
   updated_at: string; // ISO 8601 timestamp
 }
@@ -120,6 +121,35 @@ export async function getSession(userId: string, sessionDateTime: string): Promi
     return result.Item as ScheduleSession | null;
   } catch (error) {
     console.error("Error getting session from DynamoDB:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get a session by session_id (scans all sessions - consider adding GSI for better performance)
+ */
+export async function getSessionById(sessionId: string, userId?: string): Promise<ScheduleSession | null> {
+  try {
+    // If userId is provided, query by user_id and filter by session_id
+    if (userId) {
+      const sessions = await getCoachSessions(userId);
+      return sessions.find((s) => s.session_id === sessionId) || null;
+    }
+
+    // Otherwise, scan the table (less efficient but works)
+    const result = await docClient.send(
+      new ScanCommand({
+        TableName: SCHEDULES_TABLE,
+        FilterExpression: "session_id = :sessionId",
+        ExpressionAttributeValues: {
+          ":sessionId": sessionId,
+        },
+      })
+    );
+
+    return (result.Items?.[0] as ScheduleSession) || null;
+  } catch (error) {
+    console.error("Error getting session by ID from DynamoDB:", error);
     throw error;
   }
 }
