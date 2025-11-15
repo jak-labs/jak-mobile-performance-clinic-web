@@ -1,17 +1,70 @@
 "use client"
 
-import { useState } from "react"
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
+import { useState, useEffect } from "react"
+import { ChevronLeft, ChevronRight, Plus, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ScheduleSessionPanel from "@/components/schedule-session-panel"
 import SessionDetailsPanel from "@/components/session-details-panel"
-import { getAllSessions, addSession as addGlobalSession, type Session } from "@/lib/sessions-data"
+import { type Session } from "@/lib/sessions-data"
 
 export default function ScheduleContent() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [isSchedulePanelOpen, setIsSchedulePanelOpen] = useState(false)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
-  const [sessions, setSessions] = useState<Session[]>(getAllSessions())
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true)
+
+  // Fetch sessions from DynamoDB on component mount and when month changes
+  useEffect(() => {
+    fetchSessions()
+  }, [currentDate])
+
+  const fetchSessions = async () => {
+    setIsLoadingSessions(true)
+    try {
+      // Calculate date range for the current month
+      const year = currentDate.getFullYear()
+      const month = currentDate.getMonth()
+      const startDate = new Date(year, month, 1).toISOString()
+      const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999).toISOString()
+
+      const response = await fetch(`/api/sessions?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`)
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch sessions")
+      }
+
+      const data = await response.json()
+      
+      // Convert DynamoDB sessions to the Session format expected by the UI
+      const convertedSessions: Session[] = data.sessions.map((dbSession: any) => {
+        const sessionDate = new Date(dbSession.session_date_time)
+        
+        // Format time as HH:MM
+        const hours = sessionDate.getHours()
+        const minutes = sessionDate.getMinutes()
+        const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+        
+        return {
+          id: dbSession.session_id,
+          title: dbSession.title,
+          date: sessionDate,
+          time: timeString,
+          type: dbSession.session_type === "single" ? "1:1" : "group",
+          clients: [], // We'll need to fetch client names separately if needed
+          link: `/session/${dbSession.session_id}`,
+          status: dbSession.status || "scheduled",
+        }
+      })
+
+      setSessions(convertedSessions)
+    } catch (error) {
+      console.error("Error fetching sessions:", error)
+      // Don't show error to user, just log it
+    } finally {
+      setIsLoadingSessions(false)
+    }
+  }
 
   const monthNames = [
     "January",
@@ -62,17 +115,20 @@ export default function ScheduleContent() {
     })
   }
 
-  const handleAddSession = (newSession: Omit<Session, "id" | "link" | "status">) => {
-    const sessionId = Math.random().toString(36).substring(2, 9)
-    const session: Session = {
-      ...newSession,
-      id: sessionId,
-      link: `/session/${sessionId}`,
-      status: "scheduled",
-    }
-    addGlobalSession(session)
-    setSessions((prev) => [...prev, session])
+  const handleAddSession = (newSession: Session) => {
+    // Add to local state immediately for instant feedback
+    setSessions((prev) => {
+      // Check if session already exists to prevent duplicates
+      const exists = prev.some((s) => s.id === newSession.id)
+      if (exists) {
+        return prev
+      }
+      return [...prev, newSession]
+    })
     setIsSchedulePanelOpen(false)
+    
+    // Optionally refresh from database to ensure consistency
+    // But we'll let the useEffect handle it naturally
   }
 
   const handleOpenSchedulePanel = () => {
@@ -136,12 +192,20 @@ export default function ScheduleContent() {
             </div>
 
             {/* Calendar Grid */}
+            {isLoadingSessions ? (
+              <div className="flex items-center justify-center flex-1">
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Loading sessions...</p>
+                </div>
+              </div>
+            ) : (
             <div className="grid grid-cols-7 auto-rows-fr gap-px flex-1 min-h-0 bg-border/30 rounded-lg overflow-hidden">
               {/* Day headers */}
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                 <div
                   key={day}
-                  className="text-center font-semibold text-xs text-muted-foreground py-1 bg-muted/50 flex items-center justify-center"
+                  className="text-center font-semibold text-xs text-muted-foreground py-0.5 bg-muted/50 flex items-center justify-center"
                 >
                   {day}
                 </div>
@@ -198,6 +262,7 @@ export default function ScheduleContent() {
                 )
               })}
             </div>
+            )}
           </div>
         </div>
       </div>
