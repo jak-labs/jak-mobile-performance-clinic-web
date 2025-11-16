@@ -12,6 +12,12 @@ export const metadata: Metadata = {
   title: "JAK Labs - Athlete Performance Monitoring",
   description: "Professional athlete performance monitoring and coaching platform",
   generator: "v0.app",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    viewportFit: "cover",
+  },
 }
 
 export default function RootLayout({

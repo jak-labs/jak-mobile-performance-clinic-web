@@ -356,7 +356,7 @@ function RoomContent({
 
           {/* Other participants - Mobile: Horizontal scroll, Desktop: Vertical stack */}
           {otherParticipants.length > 0 && (
-            <div className="md:w-64 w-full flex md:flex-col flex-row gap-2 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-2 md:h-auto h-48">
+            <div className="md:w-64 w-full flex md:flex-col flex-row gap-2 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-2 md:h-auto h-28 sm:h-36">
               {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublication = Array.from(participant.audioTrackPublications.values())[0]
@@ -420,7 +420,7 @@ function RoomContent({
           )}
         </div>
 
-        <div className="absolute bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 md:gap-3 bg-background/95 backdrop-blur-sm px-3 md:px-6 py-2 md:py-3 rounded-full border shadow-lg z-50 max-w-[calc(100vw-1rem)] md:max-w-none">
+        <div className="absolute bottom-24 md:bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 md:gap-3 bg-background/95 backdrop-blur-sm px-3 md:px-6 py-2 md:py-3 rounded-full border shadow-lg z-50 max-w-[calc(100vw-1rem)] md:max-w-none" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))', marginBottom: 'env(safe-area-inset-bottom, 0)' }}>
           <TrackToggle source={Track.Source.Microphone} className="rounded-full h-10 w-10 md:h-12 md:w-12 flex-shrink-0" />
           <TrackToggle source={Track.Source.Camera} className="rounded-full h-10 w-10 md:h-12 md:w-12 flex-shrink-0" />
           <DisconnectButton className="rounded-full h-10 w-10 md:h-12 md:w-12 bg-destructive hover:bg-destructive/90 flex-shrink-0">

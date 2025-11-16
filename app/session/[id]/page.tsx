@@ -74,7 +74,7 @@ export default function SessionPage() {
   }
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black">
+    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
       <LiveKitVideoSession roomName={roomName} sessionTitle={sessionTitle} sessionOwnerId={sessionOwnerId} />
     </div>
   )
