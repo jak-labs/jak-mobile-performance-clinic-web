@@ -42,78 +42,50 @@ async function getMemberSessions(
   try {
     // Scan the table and filter for sessions where member is in subject_id or subject_ids
     // Note: DynamoDB FilterExpression doesn't support checking if a value is in an array,
-    // so we'll filter by subject_id first, then filter in code for subject_ids
+    // so we'll scan with date filter (if provided) and filter in code for member participation
     const scanParams: any = {
       TableName: SCHEDULES_TABLE,
-      FilterExpression: 'subject_id = :memberId',
-      ExpressionAttributeValues: {
-        ':memberId': memberId,
-      },
     };
 
-    // Add date range filter if provided
+    // Add date range filter if provided (this can be done in DynamoDB)
     if (startDate || endDate) {
       const dateFilter: string[] = [];
       if (startDate) {
         dateFilter.push('session_date_time >= :startDate');
-        scanParams.ExpressionAttributeValues[':startDate'] = startDate;
+        scanParams.FilterExpression = 'session_date_time >= :startDate';
+        scanParams.ExpressionAttributeValues = { ':startDate': startDate };
       }
       if (endDate) {
-        dateFilter.push('session_date_time <= :endDate');
+        if (scanParams.FilterExpression) {
+          scanParams.FilterExpression += ' AND session_date_time <= :endDate';
+        } else {
+          scanParams.FilterExpression = 'session_date_time <= :endDate';
+        }
+        if (!scanParams.ExpressionAttributeValues) {
+          scanParams.ExpressionAttributeValues = {};
+        }
         scanParams.ExpressionAttributeValues[':endDate'] = endDate;
       }
-      scanParams.FilterExpression += ` AND (${dateFilter.join(' AND ')})`;
     }
 
-    // First, get sessions where subject_id matches (1:1 sessions)
-    const result1 = await docClient.send(new ScanCommand(scanParams));
-    let sessions = (result1.Items || []) as any[];
+    // Scan all sessions (with date filter if provided)
+    const result = await docClient.send(new ScanCommand(scanParams));
+    const allSessions = (result.Items || []) as any[];
 
-    // Also scan for group sessions where member is in subject_ids array
-    // We need to scan all sessions and filter in code since DynamoDB can't check array membership
-    const allScanParams: any = {
-      TableName: SCHEDULES_TABLE,
-    };
-
-    // Add date range filter if provided
-    if (startDate || endDate) {
-      const dateFilter: string[] = [];
-      if (startDate) {
-        dateFilter.push('session_date_time >= :startDate');
-        allScanParams.FilterExpression = 'session_date_time >= :startDate';
-        allScanParams.ExpressionAttributeValues = { ':startDate': startDate };
+    // Filter in code for sessions where member is in subject_id (1:1) or subject_ids (group)
+    const memberSessions = allSessions.filter((session) => {
+      // Check if member is in 1:1 session
+      if (session.subject_id === memberId) {
+        return true;
       }
-      if (endDate) {
-        if (allScanParams.FilterExpression) {
-          allScanParams.FilterExpression += ' AND session_date_time <= :endDate';
-        } else {
-          allScanParams.FilterExpression = 'session_date_time <= :endDate';
-        }
-        if (!allScanParams.ExpressionAttributeValues) {
-          allScanParams.ExpressionAttributeValues = {};
-        }
-        allScanParams.ExpressionAttributeValues[':endDate'] = endDate;
-      }
-    }
-
-    const result2 = await docClient.send(new ScanCommand(allScanParams));
-    const allSessions = (result2.Items || []) as any[];
-
-    // Filter for group sessions where member is in subject_ids
-    const groupSessions = allSessions.filter((session) => {
+      // Check if member is in group session
       if (session.subject_ids && Array.isArray(session.subject_ids)) {
         return session.subject_ids.includes(memberId);
       }
       return false;
     });
 
-    // Combine both results and remove duplicates (by session_id)
-    const allMemberSessions = [...sessions, ...groupSessions];
-    const uniqueSessions = allMemberSessions.filter(
-      (session, index, self) => index === self.findIndex((s) => s.session_id === session.session_id)
-    );
-
-    return uniqueSessions;
+    return memberSessions;
   } catch (error) {
     console.error('Error getting member sessions from DynamoDB:', error);
     throw error;
