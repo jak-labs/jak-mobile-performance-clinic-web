@@ -120,7 +120,7 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
       token={token}
       serverUrl={livekitUrl}
       connect={true}
-      className="relative w-full h-full bg-secondary overflow-hidden flex"
+      className="relative w-full h-full bg-black overflow-hidden flex"
     >
       <RoomContent
         isPanelOpen={isPanelOpen}
@@ -280,9 +280,9 @@ function RoomContent({
           isPanelOpen ? "w-[60%]" : "w-full"
         }`}
       >
-        <div className="h-full min-h-0 flex gap-2 p-2">
+        <div className="h-full min-h-0 flex gap-0 p-0">
           {/* Coach video - large main view */}
-          <div className="flex-1 min-h-0 relative rounded-lg overflow-hidden bg-black border-2 border-primary">
+          <div className="flex-1 min-h-0 relative overflow-hidden bg-black border-r-2 border-primary">
             {coachParticipant ? (() => {
               const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
               return (
@@ -355,7 +355,7 @@ function RoomContent({
 
           {/* Other participants - small boxes on the right side */}
           {otherParticipants.length > 0 && (
-            <div className="w-64 flex flex-col gap-2 overflow-y-auto">
+            <div className="w-64 flex flex-col gap-2 overflow-y-auto p-2">
               {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublication = Array.from(participant.audioTrackPublications.values())[0]
@@ -420,7 +420,7 @@ function RoomContent({
           )}
         </div>
 
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-background/95 backdrop-blur-sm px-6 py-3 rounded-full border shadow-lg z-10">
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-background/95 backdrop-blur-sm px-6 py-3 rounded-full border shadow-lg z-10">
           <TrackToggle source={Track.Source.Microphone} className="rounded-full h-12 w-12" />
           <TrackToggle source={Track.Source.Camera} className="rounded-full h-12 w-12" />
           <DisconnectButton className="rounded-full h-12 w-12 bg-destructive hover:bg-destructive/90">
@@ -428,12 +428,12 @@ function RoomContent({
           </DisconnectButton>
         </div>
 
-        <div className="absolute top-4 left-20 bg-background/95 backdrop-blur-sm px-4 py-2 rounded-lg border z-10">
+        <div className="absolute top-4 left-4 bg-background/95 backdrop-blur-sm px-4 py-2 rounded-lg border z-10">
           <p className="text-xs text-muted-foreground">Session Duration</p>
           <p className="text-sm font-mono font-semibold">{sessionDuration}</p>
         </div>
 
-        <div className="absolute top-4 right-20 flex items-center gap-2 bg-background/95 backdrop-blur-sm px-3 py-2 rounded-lg border z-10">
+        <div className="absolute top-4 right-4 flex items-center gap-2 bg-background/95 backdrop-blur-sm px-3 py-2 rounded-lg border z-10">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
           <span className="text-xs font-medium">Connected</span>
         </div>

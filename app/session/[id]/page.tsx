@@ -73,5 +73,9 @@ export default function SessionPage() {
     )
   }
 
-  return <LiveKitVideoSession roomName={roomName} sessionTitle={sessionTitle} sessionOwnerId={sessionOwnerId} />
+  return (
+    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black">
+      <LiveKitVideoSession roomName={roomName} sessionTitle={sessionTitle} sessionOwnerId={sessionOwnerId} />
+    </div>
+  )
 }

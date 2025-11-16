@@ -60,11 +60,12 @@ export default function Navigation() {
   }
 
   const navItems = isMember ? memberNavItems : coachNavItems
-  const visibleNavItems = navItems.filter((item) => !item.v2Only || v2Enabled)
+  const visibleNavItems = navItems.filter((item) => !('v2Only' in item) || (item.v2Only && v2Enabled))
 
   const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up"
+  const isSessionPage = pathname?.startsWith("/session/")
 
-  if (isAuthPage) {
+  if (isAuthPage || isSessionPage) {
     return null
   }
 
