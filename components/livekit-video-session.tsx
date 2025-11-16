@@ -280,10 +280,10 @@ function RoomContent({
           isPanelOpen ? "md:w-[60%] w-full" : "w-full"
         }`}
       >
-        {/* Main video area - Clean, minimal layout */}
-        <div className="h-full min-h-0 flex flex-col md:flex-row gap-0 p-0 overflow-y-auto md:overflow-hidden">
-          {/* Coach video - large main view with clean styling */}
-          <div className="flex-1 min-h-0 relative overflow-hidden bg-black md:border-r border-border/50">
+        {/* Main video area - Coach centered with participants around */}
+        <div className="h-full min-h-0 relative overflow-hidden bg-black p-2 md:p-4">
+          {/* Coach video - large main view centered */}
+          <div className="h-full w-full relative rounded-xl overflow-hidden bg-gray-900">
             {coachParticipant ? (() => {
               const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
               return (
@@ -353,22 +353,21 @@ function RoomContent({
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Other participants - Clean carousel layout */}
-          {otherParticipants.length > 0 && (
-            <div className="md:w-72 w-full flex md:flex-col flex-row gap-3 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-3 md:h-auto h-28 sm:h-36 flex-shrink-0 scrollbar-hide" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' }}>
-              {otherParticipants.map((participant) => {
+            
+            {/* Participant videos - positioned as small boxes around coach */}
+            {otherParticipants.length > 0 && (
+              <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20 max-h-[40%] overflow-y-auto scrollbar-hide">
+                {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublications = [...participant.audioTrackPublications.values()]
                 const audioPublication = audioPublications[0]
                 const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
                 
-                return (
-                  <div
-                    key={participant.identity}
-                    className="relative rounded-xl overflow-hidden bg-black border border-white/10 flex-shrink-0 md:h-[200px] h-full w-56 md:w-auto shadow-lg hover:border-white/20 transition-colors"
-                  >
+                  return (
+                    <div
+                      key={participant.identity}
+                      className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-32 md:w-40 h-24 md:h-32 flex-shrink-0 shadow-lg hover:border-white/20 transition-all hover:scale-105"
+                    >
                     <ParticipantContext.Provider value={participant}>
                       {(() => {
                         const participantTrackRef = getTrackForParticipant(participant.identity)
@@ -387,32 +386,87 @@ function RoomContent({
                         )
                       })()}
                     </ParticipantContext.Provider>
-                    <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-white/10 z-10 shadow-lg">
+                      <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-1.5 py-1 rounded z-10">
+                        {(() => {
+                          const info = participantInfo[participant.identity]
+                          const firstName = info?.firstName || ''
+                          const lastName = info?.lastName || ''
+                          
+                          return (firstName || lastName) ? (
+                            <p className="text-[10px] font-semibold text-white truncate max-w-[120px]">
+                              {firstName} {lastName}
+                            </p>
+                          ) : (
+                            <p className="text-[10px] font-medium text-white truncate max-w-[120px]">
+                              {participant.name || participant.identity}
+                            </p>
+                          )
+                        })()}
+                      </div>
+                      {isMuted && (
+                        <div className="absolute top-1 right-1 bg-red-500/90 p-1 rounded-full z-10">
+                          <MicOff className="h-2.5 w-2.5 text-white" />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          
+          {/* Mobile: Horizontal scrollable participant row at bottom */}
+          {otherParticipants.length > 0 && (
+            <div className="md:hidden absolute bottom-16 left-0 right-0 flex flex-row gap-2 overflow-x-auto px-2 pb-2 z-20 scrollbar-hide" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' }}>
+              {otherParticipants.map((participant) => {
+                const isLocal = participant.identity === localParticipant.identity
+                const audioPublications = [...participant.audioTrackPublications.values()]
+                const audioPublication = audioPublications[0]
+                const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
+                
+                return (
+                  <div
+                    key={participant.identity}
+                    className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-24 h-20 flex-shrink-0 shadow-lg"
+                  >
+                    <ParticipantContext.Provider value={participant}>
+                      {(() => {
+                        const participantTrackRef = getTrackForParticipant(participant.identity)
+                        return participantTrackRef ? (
+                          <TrackRefContext.Provider value={participantTrackRef}>
+                            <ParticipantTile className="h-full w-full" />
+                          </TrackRefContext.Provider>
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center bg-gray-900">
+                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                              <span className="text-sm font-medium text-white">
+                                {(participant.name || participant.identity).charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })()}
+                    </ParticipantContext.Provider>
+                    <div className="absolute bottom-0.5 left-0.5 bg-black/70 backdrop-blur-sm px-1 py-0.5 rounded z-10">
                       {(() => {
                         const info = participantInfo[participant.identity]
                         const firstName = info?.firstName || ''
                         const lastName = info?.lastName || ''
-                        const label = info?.label || 'Participant'
                         
                         return (firstName || lastName) ? (
-                          <div className="flex flex-col gap-0.5">
-                            <p className="text-xs font-semibold text-white truncate max-w-[180px]">
-                              {firstName} {lastName}
-                            </p>
-                            <p className="text-[10px] text-white/70 truncate max-w-[180px]">
-                              {label} {isLocal ? "• You" : ""}
-                            </p>
-                          </div>
+                          <p className="text-[9px] font-semibold text-white truncate max-w-[80px]">
+                            {firstName}
+                          </p>
                         ) : (
-                          <p className="text-xs font-medium text-white truncate max-w-[180px]">
-                            {participant.name || participant.identity} {isLocal ? "(You)" : ""}
+                          <p className="text-[9px] font-medium text-white truncate max-w-[80px]">
+                            {participant.name || participant.identity}
                           </p>
                         )
                       })()}
                     </div>
                     {isMuted && (
-                      <div className="absolute top-1 right-1 bg-destructive p-1.5 rounded-full z-10">
-                        <MicOff className="h-3 w-3 text-destructive-foreground" />
+                      <div className="absolute top-0.5 right-0.5 bg-red-500/90 p-0.5 rounded-full z-10">
+                        <MicOff className="h-2 w-2 text-white" />
                       </div>
                     )}
                   </div>
