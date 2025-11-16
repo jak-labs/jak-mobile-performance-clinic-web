@@ -2,13 +2,130 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { getCoachSessions } from '@/lib/dynamodb-schedules';
+import { CognitoIdentityProviderClient, AdminListGroupsForUserCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
+
+// Initialize Cognito client for group checking
+const cognitoClient = new CognitoIdentityProviderClient({
+  region: process.env.AWS_REGION || 'us-east-2',
+  credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+    ? {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      }
+    : undefined,
+});
+
+// Initialize DynamoDB client for member session queries
+const dynamoClient = new DynamoDBClient({
+  region: process.env.AWS_REGION || 'us-east-2',
+  credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+    ? {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      }
+    : undefined,
+});
+
+const docClient = DynamoDBDocumentClient.from(dynamoClient);
+const SCHEDULES_TABLE = process.env.DYNAMODB_SCHEDULES_TABLE || 'jak-coach-sessions-schedule';
+
+/**
+ * Get sessions for a member (where they are in subject_id or subject_ids)
+ */
+async function getMemberSessions(
+  memberId: string,
+  startDate?: string,
+  endDate?: string
+): Promise<any[]> {
+  try {
+    // Scan the table and filter for sessions where member is in subject_id or subject_ids
+    // Note: DynamoDB FilterExpression doesn't support checking if a value is in an array,
+    // so we'll filter by subject_id first, then filter in code for subject_ids
+    const scanParams: any = {
+      TableName: SCHEDULES_TABLE,
+      FilterExpression: 'subject_id = :memberId',
+      ExpressionAttributeValues: {
+        ':memberId': memberId,
+      },
+    };
+
+    // Add date range filter if provided
+    if (startDate || endDate) {
+      const dateFilter: string[] = [];
+      if (startDate) {
+        dateFilter.push('session_date_time >= :startDate');
+        scanParams.ExpressionAttributeValues[':startDate'] = startDate;
+      }
+      if (endDate) {
+        dateFilter.push('session_date_time <= :endDate');
+        scanParams.ExpressionAttributeValues[':endDate'] = endDate;
+      }
+      scanParams.FilterExpression += ` AND (${dateFilter.join(' AND ')})`;
+    }
+
+    // First, get sessions where subject_id matches (1:1 sessions)
+    const result1 = await docClient.send(new ScanCommand(scanParams));
+    let sessions = (result1.Items || []) as any[];
+
+    // Also scan for group sessions where member is in subject_ids array
+    // We need to scan all sessions and filter in code since DynamoDB can't check array membership
+    const allScanParams: any = {
+      TableName: SCHEDULES_TABLE,
+    };
+
+    // Add date range filter if provided
+    if (startDate || endDate) {
+      const dateFilter: string[] = [];
+      if (startDate) {
+        dateFilter.push('session_date_time >= :startDate');
+        allScanParams.FilterExpression = 'session_date_time >= :startDate';
+        allScanParams.ExpressionAttributeValues = { ':startDate': startDate };
+      }
+      if (endDate) {
+        if (allScanParams.FilterExpression) {
+          allScanParams.FilterExpression += ' AND session_date_time <= :endDate';
+        } else {
+          allScanParams.FilterExpression = 'session_date_time <= :endDate';
+        }
+        if (!allScanParams.ExpressionAttributeValues) {
+          allScanParams.ExpressionAttributeValues = {};
+        }
+        allScanParams.ExpressionAttributeValues[':endDate'] = endDate;
+      }
+    }
+
+    const result2 = await docClient.send(new ScanCommand(allScanParams));
+    const allSessions = (result2.Items || []) as any[];
+
+    // Filter for group sessions where member is in subject_ids
+    const groupSessions = allSessions.filter((session) => {
+      if (session.subject_ids && Array.isArray(session.subject_ids)) {
+        return session.subject_ids.includes(memberId);
+      }
+      return false;
+    });
+
+    // Combine both results and remove duplicates (by session_id)
+    const allMemberSessions = [...sessions, ...groupSessions];
+    const uniqueSessions = allMemberSessions.filter(
+      (session, index, self) => index === self.findIndex((s) => s.session_id === session.session_id)
+    );
+
+    return uniqueSessions;
+  } catch (error) {
+    console.error('Error getting member sessions from DynamoDB:', error);
+    throw error;
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
     // Get authenticated user
     const session = await getServerSession(authOptions);
     
-    if (!session?.user?.id) {
+    if (!session?.user?.id || !session?.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -22,8 +139,40 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    // Get sessions from DynamoDB
-    const sessions = await getCoachSessions(userId, startDate || undefined, endDate || undefined);
+    // Check if user is a coach or member
+    let isCoach = false;
+    let isMember = false;
+    try {
+      const userPoolId = process.env.COGNITO_ISSUER?.split('/').pop();
+      if (userPoolId) {
+        const groupsResponse = await cognitoClient.send(
+          new AdminListGroupsForUserCommand({
+            UserPoolId: userPoolId,
+            Username: session.user.email,
+          })
+        );
+        const groups = groupsResponse.Groups || [];
+        isMember = groups.some((g) => g.GroupName === 'Member');
+        isCoach = groups.some((g) => g.GroupName === 'Coach');
+      }
+    } catch (error) {
+      console.error('Error checking user groups:', error);
+    }
+
+    // Get sessions based on user role
+    let sessions: any[];
+    if (isCoach) {
+      // Coaches see sessions they created
+      sessions = await getCoachSessions(userId, startDate || undefined, endDate || undefined);
+    } else if (isMember) {
+      // Members see sessions where they are in subject_id or subject_ids
+      sessions = await getMemberSessions(userId, startDate || undefined, endDate || undefined);
+    } else {
+      return NextResponse.json(
+        { error: 'Unauthorized - Invalid user role' },
+        { status: 403 }
+      );
+    }
 
     return NextResponse.json(
       { sessions },

@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
 // Initialize DynamoDB client
 const client = new DynamoDBClient({
@@ -94,14 +94,74 @@ export async function getSubjectByInviteToken(inviteToken: string): Promise<Subj
 }
 
 /**
+ * Get subject profile by subject_id
+ * Note: This uses Scan which may be slow for large tables
+ * Consider using Query with owner_id if you have it for better performance
+ */
+export async function getSubjectProfile(subjectId: string, ownerId?: string): Promise<SubjectProfile | null> {
+  if (!SUBJECTS_TABLE) {
+    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
+  }
+
+  try {
+    // If owner_id is provided, we can use Query (more efficient)
+    if (ownerId) {
+      const result = await docClient.send(
+        new ScanCommand({
+          TableName: SUBJECTS_TABLE,
+          FilterExpression: "owner_id = :ownerId AND subject_id = :subjectId",
+          ExpressionAttributeValues: {
+            ":ownerId": ownerId,
+            ":subjectId": subjectId,
+          },
+        })
+      );
+      return (result.Items?.[0] as SubjectProfile) || null;
+    }
+
+    // Otherwise, scan by subject_id only
+    const result = await docClient.send(
+      new ScanCommand({
+        TableName: SUBJECTS_TABLE,
+        FilterExpression: "subject_id = :subjectId",
+        ExpressionAttributeValues: {
+          ":subjectId": subjectId,
+        },
+      })
+    );
+
+    return (result.Items?.[0] as SubjectProfile) || null;
+  } catch (error) {
+    console.error("Error getting subject profile:", error);
+    throw error;
+  }
+}
+
+/**
  * Update subject profile (e.g., when they sign up and get a real subject_id)
  */
 export async function updateSubjectProfile(
   subjectId: string,
-  updates: Partial<Omit<SubjectProfile, "subject_id" | "created_at">>
+  updates: Partial<Omit<SubjectProfile, "subject_id" | "created_at">>,
+  ownerId?: string
 ): Promise<void> {
   if (!SUBJECTS_TABLE) {
     throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
+  }
+
+  // Get existing profile to get owner_id if not provided
+  let existingProfile: SubjectProfile | null = null;
+  if (!ownerId && !updates.owner_id) {
+    existingProfile = await getSubjectProfile(subjectId);
+    if (!existingProfile) {
+      throw new Error("Subject profile not found");
+    }
+    ownerId = existingProfile.owner_id;
+  }
+
+  const finalOwnerId = ownerId || updates.owner_id || existingProfile?.owner_id;
+  if (!finalOwnerId) {
+    throw new Error("owner_id is required for update");
   }
 
   const timestamp = new Date().toISOString();
@@ -111,9 +171,13 @@ export async function updateSubjectProfile(
     ":updatedAt": timestamp,
   };
 
-  for (const key in updates) {
-    if (updates.hasOwnProperty(key) && updates[key as keyof typeof updates] !== undefined) {
-      const value = updates[key as keyof typeof updates];
+  // Don't update owner_id if it's in updates (it's part of the key)
+  const updatesToProcess = { ...updates };
+  delete updatesToProcess.owner_id;
+
+  for (const key in updatesToProcess) {
+    if (updatesToProcess.hasOwnProperty(key) && updatesToProcess[key as keyof typeof updatesToProcess] !== undefined) {
+      const value = updatesToProcess[key as keyof typeof updatesToProcess];
       updateExpressions.push(`#${key} = :${key}`);
       expressionAttributeNames[`#${key}`] = key;
       expressionAttributeValues[`:${key}`] = value;
@@ -129,7 +193,10 @@ export async function updateSubjectProfile(
 
   const command = new UpdateCommand({
     TableName: SUBJECTS_TABLE,
-    Key: { subject_id: subjectId },
+    Key: { 
+      owner_id: finalOwnerId,
+      subject_id: subjectId 
+    },
     UpdateExpression: `SET ${updateExpressions.join(", ")}`,
     ExpressionAttributeNames: expressionAttributeNames,
     ExpressionAttributeValues: expressionAttributeValues,
@@ -158,21 +225,57 @@ export async function migratePendingSubjectToActive(
 
   // Create new entry with real subject_id
   const timestamp = new Date().toISOString();
+  
+  // Preserve all important fields from pending subject, especially coach_id
+  const migratedSubject = {
+    ...pendingSubject,
+    owner_id: pendingSubject.owner_id, // Keep owner_id from pending subject
+    subject_id: realSubjectId, // Update to real Cognito sub
+    status: 'active',
+    invite_token: undefined, // Clear invite token
+    coach_id: pendingSubject.coach_id, // Explicitly preserve coach_id
+    created_at: pendingSubject.created_at, // Keep original creation time
+    updated_at: timestamp,
+  };
+  
+  console.log('Migrating pending subject to active:', JSON.stringify(migratedSubject, null, 2));
+  
   await docClient.send(
     new PutCommand({
       TableName: SUBJECTS_TABLE,
-      Item: {
-        ...pendingSubject,
-        owner_id: pendingSubject.owner_id, // Keep owner_id from pending subject
-        subject_id: realSubjectId,
-        status: 'active',
-        invite_token: undefined,
-        created_at: pendingSubject.created_at, // Keep original creation time
-        updated_at: timestamp,
-      },
+      Item: migratedSubject,
     })
   );
 
   // Delete the old pending entry (optional - you might want to keep it for audit)
   // For now, we'll just leave it - it won't interfere since we query by real subject_id
+}
+
+/**
+ * Get all subjects assigned to a specific coach (by owner_id)
+ * Uses Query for efficient access since owner_id is the partition key
+ * Table structure: owner_id (partition key) + subject_id (sort key)
+ */
+export async function getSubjectsByCoach(ownerId: string): Promise<SubjectProfile[]> {
+  if (!SUBJECTS_TABLE) {
+    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
+  }
+
+  try {
+    // Query by owner_id (partition key) to get all subjects for this coach
+    const queryResult = await docClient.send(
+      new QueryCommand({
+        TableName: SUBJECTS_TABLE,
+        KeyConditionExpression: "owner_id = :ownerId",
+        ExpressionAttributeValues: {
+          ":ownerId": ownerId,
+        },
+      })
+    );
+    
+    return (queryResult.Items as SubjectProfile[]) || [];
+  } catch (error) {
+    console.error("Error getting subjects by coach:", error);
+    throw error;
+  }
 }

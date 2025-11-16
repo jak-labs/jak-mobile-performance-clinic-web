@@ -18,6 +18,7 @@ export default function MemberProfilePage() {
     f_name: "",
     l_name: "",
   })
+  const [coach, setCoach] = useState<{ name: string; email: string } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -29,19 +30,53 @@ export default function MemberProfilePage() {
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!session?.user?.email) return
+      if (!session?.user?.id) return
 
       try {
         // Fetch member profile from DynamoDB
-        // For now, we'll use the session data
+        const response = await fetch(`/api/subjects/${session.user.id}`)
+        
+        if (!response.ok) {
+          throw new Error("Failed to fetch profile")
+        }
+
+        const data = await response.json()
+        const subject = data.subject
+
+        console.log('Fetched subject data:', data)
+        console.log('Subject coach_id:', subject?.coach_id)
+        console.log('Coach data:', data.coach)
+
+        setProfile({
+          name: subject?.name || subject?.full_name || "",
+          email: subject?.email || session.user.email || "",
+          f_name: subject?.f_name || "",
+          l_name: subject?.l_name || "",
+        })
+
+        // Set coach information if available
+        if (data.coach) {
+          setCoach({
+            name: data.coach.name || data.coach.email,
+            email: data.coach.email,
+          })
+        } else {
+          setCoach(null)
+          if (subject?.coach_id) {
+            console.warn('Coach ID exists but coach profile not found. Coach ID:', subject.coach_id)
+          } else {
+            console.log('No coach_id in subject profile - member may have signed up directly')
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching profile:", error)
+        // Fallback to session data if fetch fails
         setProfile({
           name: session.user.name || "",
           email: session.user.email || "",
           f_name: "",
           l_name: "",
         })
-      } catch (error) {
-        console.error("Error fetching profile:", error)
       } finally {
         setIsLoading(false)
       }
@@ -53,13 +88,41 @@ export default function MemberProfilePage() {
   }, [session])
 
   const handleSave = async () => {
+    if (!session?.user?.id) {
+      alert("User not authenticated")
+      return
+    }
+
     setIsSaving(true)
     try {
-      // TODO: Implement API route to update member profile
+      const response = await fetch(`/api/subjects/${session.user.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          f_name: profile.f_name,
+          l_name: profile.l_name,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update profile")
+      }
+
+      const data = await response.json()
+      
+      // Update local state with saved data
+      setProfile({
+        ...profile,
+        name: data.subject?.name || data.subject?.full_name || profile.name,
+      })
+
       alert("Profile updated successfully!")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving profile:", error)
-      alert("Failed to save profile")
+      alert(error.message || "Failed to save profile")
     } finally {
       setIsSaving(false)
     }
@@ -85,6 +148,15 @@ export default function MemberProfilePage() {
           <CardDescription>Manage your profile information</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {coach && (
+            <div className="space-y-2 p-4 bg-muted rounded-lg border">
+              <Label className="text-sm font-semibold text-muted-foreground">Assigned Coach</Label>
+              <div className="space-y-1">
+                <p className="text-base font-medium">{coach.name}</p>
+                <p className="text-sm text-muted-foreground">{coach.email}</p>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="email">Email Address</Label>
             <Input id="email" type="email" value={profile.email} disabled />

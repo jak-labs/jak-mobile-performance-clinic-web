@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getAllSubjects } from '@/lib/dynamodb-schedules';
+import { getSubjectsByCoach } from '@/lib/dynamodb-subjects';
 
 export async function GET(req: NextRequest) {
   try {
-    // Get authenticated user
+    // Get authenticated user (coach)
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
@@ -15,14 +15,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Get all subjects/clients
-    const subjects = await getAllSubjects();
+    // Get only subjects/clients assigned to this coach
+    // owner_id is the coach's ID for subjects assigned via invite
+    const subjects = await getSubjectsByCoach(session.user.id);
+
+    // Filter out pending invites (only show active subjects)
+    const activeSubjects = subjects.filter(
+      (subject) => subject.status !== 'pending_invite' && !subject.subject_id.startsWith('pending-')
+    );
 
     // Log for debugging - remove in production
-    console.log("Fetched subjects:", JSON.stringify(subjects, null, 2));
+    console.log(`Fetched ${activeSubjects.length} subjects for coach ${session.user.id}`);
 
     return NextResponse.json(
-      { subjects },
+      { subjects: activeSubjects },
       { status: 200 }
     );
   } catch (error: any) {
