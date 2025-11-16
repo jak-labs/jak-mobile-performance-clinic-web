@@ -65,7 +65,20 @@ export default function AddClientPanel({ isOpen, onClose }: AddClientPanelProps)
         return
       }
 
-      setSuccess("Client added successfully! Invitation email has been sent.")
+      // Check for SES sandbox warning
+      if (data.warning && data.error?.includes('SES Sandbox Mode')) {
+        setError(
+          `Client added to database, but email not sent. ${data.warning} The signup link is: ${data.signupUrl}`
+        )
+        setIsSubmitting(false)
+        return
+      }
+
+      if (data.warning) {
+        setSuccess(`Client added! ${data.message}. ${data.warning}`)
+      } else {
+        setSuccess("Client added successfully! Invitation email has been sent.")
+      }
       
       // Reset form
       setFormData({

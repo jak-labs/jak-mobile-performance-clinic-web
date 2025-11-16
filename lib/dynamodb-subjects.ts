@@ -17,7 +17,8 @@ const docClient = DynamoDBDocumentClient.from(client);
 const SUBJECTS_TABLE = process.env.DYNAMODB_SUBJECTS_TABLE || "jak-subjects";
 
 export interface SubjectProfile {
-  subject_id: string; // Cognito user sub or temporary ID
+  owner_id: string; // Partition key - Coach/user ID who owns this subject
+  subject_id: string; // Cognito user sub or temporary ID (Sort key if composite key)
   email: string;
   name?: string;
   full_name?: string;
@@ -46,6 +47,7 @@ export async function saveSubjectProfile(
   const command = new PutCommand({
     TableName: SUBJECTS_TABLE,
     Item: {
+      owner_id: profile.owner_id, // Required partition key
       subject_id: profile.subject_id,
       email: profile.email,
       name: profile.name,
@@ -161,6 +163,7 @@ export async function migratePendingSubjectToActive(
       TableName: SUBJECTS_TABLE,
       Item: {
         ...pendingSubject,
+        owner_id: pendingSubject.owner_id, // Keep owner_id from pending subject
         subject_id: realSubjectId,
         status: 'active',
         invite_token: undefined,

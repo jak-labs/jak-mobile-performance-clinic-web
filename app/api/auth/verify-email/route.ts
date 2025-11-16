@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
             const l_name = nameParts.slice(1).join(' ') || '';
 
             await saveSubjectProfile({
+              owner_id: userId, // For direct signups, owner is themselves
               subject_id: userId,
               email,
               name: fullName,

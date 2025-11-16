@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
         // Store invite token and coach info
         invite_token: inviteToken,
         coach_id: session.user.id,
+        owner_id: session.user.id, // Required partition key for jak-subjects table
         sport: sportType || undefined,
         notes: notes || undefined,
         status: 'pending_invite',
@@ -177,10 +178,25 @@ If you didn't expect this invitation, you can safely ignore this email.
       console.error('Error sending invite email:', emailError);
       
       // Still return success if email fails - client is saved to DB
+      // Check if it's a sandbox mode error
+      if (emailError.name === 'MessageRejected' && emailError.message?.includes('not verified')) {
+        return NextResponse.json(
+          {
+            message: 'Client added successfully, but invitation email could not be sent',
+            warning: 'Email address is not verified in SES. Please verify the recipient email in SES Console or request production access.',
+            error: 'SES Sandbox Mode: Email address must be verified',
+            inviteToken,
+            signupUrl,
+          },
+          { status: 201 }
+        );
+      }
+      
       return NextResponse.json(
         {
           message: 'Client added successfully, but invitation email could not be sent',
           warning: 'Please send the invitation manually',
+          error: emailError.message || 'Unknown error',
           inviteToken,
           signupUrl,
         },
