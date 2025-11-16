@@ -11,6 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { type Session } from "@/lib/sessions-data"
 
 interface ScheduleSessionPanelProps {
@@ -292,13 +293,36 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="time">Time *</Label>
-                  <Input
-                    id="time"
-                    type="time"
+                  <Select
                     value={formData.time}
-                    onChange={(e) => handleInputChange("time", e.target.value)}
+                    onValueChange={(value) => handleInputChange("time", value)}
                     required
-                  />
+                  >
+                    <SelectTrigger id="time" className="w-full">
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      {(() => {
+                        const timeOptions: Array<{ value: string; label: string }> = []
+                        for (let hour = 0; hour < 24; hour++) {
+                          for (let minute = 0; minute < 60; minute += 15) {
+                            const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+                            const displayTime = new Date(`2000-01-01T${timeString}`).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true
+                            })
+                            timeOptions.push({ value: timeString, label: displayTime })
+                          }
+                        }
+                        return timeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))
+                      })()}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 

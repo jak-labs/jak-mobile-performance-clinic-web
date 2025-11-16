@@ -10,6 +10,7 @@ export default function SessionPage() {
   const sessionId = params.id as string
   const [roomName, setRoomName] = useState<string | null>(null)
   const [sessionTitle, setSessionTitle] = useState<string>("")
+  const [sessionOwnerId, setSessionOwnerId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,6 +31,7 @@ export default function SessionPage() {
         }
 
         setSessionTitle(session.title || "Session")
+        setSessionOwnerId(session.user_id || null)
         
         // Use livekit_room_name if available, otherwise generate from session_id
         const room = session.livekit_room_name || `session-${sessionId}`
@@ -71,5 +73,5 @@ export default function SessionPage() {
     )
   }
 
-  return <LiveKitVideoSession roomName={roomName} sessionTitle={sessionTitle} />
+  return <LiveKitVideoSession roomName={roomName} sessionTitle={sessionTitle} sessionOwnerId={sessionOwnerId} />
 }

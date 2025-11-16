@@ -31,6 +31,8 @@ export async function GET(
     }
 
     const { id: participantId } = await params;
+    const { searchParams } = new URL(req.url);
+    const sessionOwnerId = searchParams.get('sessionOwnerId'); // Optional: session owner ID to determine coach
 
     // Check if participant is a coach or member
     let isCoach = false;
@@ -42,25 +44,30 @@ export async function GET(
         // Get participant's email from their identity (we'll need to get it from their profile)
         // For now, try to get profile and determine role from that
         
+        // Determine if this participant is the coach (session owner)
+        const isSessionOwner = sessionOwnerId && participantId === sessionOwnerId;
+        
         // Try to get as coach first
         const coachProfile = await getUserProfile(participantId);
         if (coachProfile) {
-          isCoach = true;
+          // If this participant is the session owner, they're the coach for this session
+          // Otherwise, they might be a coach but not the coach for this specific session
+          const isCoachForThisSession = isSessionOwner;
           return NextResponse.json({
             userId: participantId,
             email: coachProfile.email,
             firstName: coachProfile.fullName?.split(' ')[0] || '',
             lastName: coachProfile.fullName?.split(' ').slice(1).join(' ') || '',
             fullName: coachProfile.fullName || coachProfile.email,
-            role: 'coach',
-            label: 'Coach',
+            role: isCoachForThisSession ? 'coach' : 'participant',
+            label: isCoachForThisSession ? 'Coach' : 'Participant',
           });
         }
         
         // Try to get as member/subject
         const subjectProfile = await getSubjectProfile(participantId);
         if (subjectProfile) {
-          isMember = true;
+          // Members are never the coach (session owner)
           return NextResponse.json({
             userId: participantId,
             email: subjectProfile.email,

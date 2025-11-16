@@ -28,9 +28,10 @@ import { useV2 } from "@/lib/v2-context"
 interface LiveKitVideoSessionProps {
   roomName: string
   sessionTitle?: string
+  sessionOwnerId?: string | null
 }
 
-export default function LiveKitVideoSession({ roomName, sessionTitle }: LiveKitVideoSessionProps) {
+export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwnerId }: LiveKitVideoSessionProps) {
   const { data: session } = useSession()
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(true)
@@ -129,6 +130,7 @@ export default function LiveKitVideoSession({ roomName, sessionTitle }: LiveKitV
         handleAddNote={handleAddNote}
         sessionDuration={formatDuration(sessionDuration)}
         v2Enabled={v2Enabled}
+        sessionOwnerId={sessionOwnerId}
       />
       <RoomAudioRenderer />
     </LiveKitRoom>
@@ -143,6 +145,7 @@ function RoomContent({
   handleAddNote,
   sessionDuration,
   v2Enabled,
+  sessionOwnerId,
 }: {
   isPanelOpen: boolean
   setIsPanelOpen: (open: boolean) => void
@@ -151,6 +154,7 @@ function RoomContent({
   handleAddNote: (id: string) => void
   sessionDuration: string
   v2Enabled: boolean
+  sessionOwnerId?: string | null
 }) {
   const { data: session } = useSession()
   const [isCoach, setIsCoach] = useState<boolean | null>(null)
@@ -201,7 +205,11 @@ function RoomContent({
         }
 
         try {
-          const response = await fetch(`/api/participants/${p.identity}`)
+          // Pass sessionOwnerId as query param to correctly identify the coach
+          const url = sessionOwnerId 
+            ? `/api/participants/${p.identity}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}`
+            : `/api/participants/${p.identity}`
+          const response = await fetch(url)
           if (response.ok) {
             const data = await response.json()
             return {
@@ -239,20 +247,15 @@ function RoomContent({
       fetchParticipantInfo()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [participants.length, localParticipant.identity, remoteParticipants.length])
+  }, [participants.length, localParticipant.identity, remoteParticipants.length, sessionOwnerId])
   
-  // Determine coach participant based on user role
-  // Logic:
-  // - If current user is a coach: they are the coach (show in main view)
-  // - If current user is a member: first remote participant is the coach (show in main view)
+  // Determine coach participant based on session owner (who created the session)
+  // The coach is the participant whose identity matches the session's user_id (owner)
   let coachParticipant: typeof participants[0] | undefined
   
-  if (isCoach === true) {
-    // Current user is coach - they are the coach
-    coachParticipant = participants.find((p) => p.identity === localParticipant.identity)
-  } else if (isCoach === false) {
-    // Current user is member - first remote participant is the coach
-    coachParticipant = participants.find((p) => p.identity !== localParticipant.identity)
+  if (sessionOwnerId) {
+    // Find the participant whose identity matches the session owner's ID
+    coachParticipant = participants.find((p) => p.identity === sessionOwnerId)
   }
   
   // Fallback: if coach not identified, use first participant
