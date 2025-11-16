@@ -123,7 +123,9 @@ export async function POST(req: NextRequest) {
     await createSession(sessionData);
 
     // Send email notifications to all members in the session
-    const sessionLink = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/session/${sessionId}`;
+    // Remove trailing slash from NEXTAUTH_URL to avoid double slashes
+    const baseUrl = (process.env.NEXTAUTH_URL || 'http://localhost:3000').replace(/\/+$/, '');
+    const sessionLink = `${baseUrl}/session/${sessionId}`;
     const sessionDate = new Date(sessionDateTime);
     const formattedDate = sessionDate.toLocaleDateString('en-US', {
       weekday: 'long',

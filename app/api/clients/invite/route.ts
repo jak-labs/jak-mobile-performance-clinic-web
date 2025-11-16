@@ -54,7 +54,9 @@ export async function POST(req: NextRequest) {
 
     // Generate invite token
     const inviteToken = randomUUID();
-    const signupUrl = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/sign-up?invite=${inviteToken}&email=${encodeURIComponent(email)}`;
+    // Remove trailing slash from NEXTAUTH_URL to avoid double slashes
+    const baseUrl = (process.env.NEXTAUTH_URL || 'http://localhost:3000').replace(/\/+$/, '');
+    const signupUrl = `${baseUrl}/sign-up?invite=${inviteToken}&email=${encodeURIComponent(email)}`;
 
     // Save client/subject to DynamoDB with pending status
     // We'll use a temporary subject_id until they sign up
