@@ -281,7 +281,7 @@ function RoomContent({
         }`}
       >
         {/* Mobile: Stack vertically, Desktop: Side by side */}
-        <div className="h-full min-h-0 flex flex-col md:flex-row gap-0 p-0 pb-24 md:pb-0">
+        <div className="h-full min-h-0 flex flex-col md:flex-row gap-0 p-0">
           {/* Coach video - large main view */}
           <div className="flex-1 min-h-0 relative overflow-hidden bg-black md:border-r-2 border-primary">
             {coachParticipant ? (() => {
@@ -330,7 +330,8 @@ function RoomContent({
                     })()}
                   </div>
                   {(() => {
-                    const audioPublication = Array.from(coachParticipant.audioTrackPublications.values())[0]
+                    const audioPublications = [...coachParticipant.audioTrackPublications.values()]
+                    const audioPublication = audioPublications[0]
                     const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
                     return isMuted ? (
                       <div className="absolute top-2 right-2 bg-destructive p-2 rounded-full z-10">
@@ -354,12 +355,22 @@ function RoomContent({
             )}
           </div>
 
+          {/* Controls - Mobile: Above participants, Desktop: Absolute bottom */}
+          <div className="md:hidden flex items-center justify-center gap-2 bg-background/95 backdrop-blur-sm px-3 py-2 border-t z-50 flex-shrink-0" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)' }}>
+            <TrackToggle source={Track.Source.Microphone} className="rounded-full h-10 w-10 flex-shrink-0" />
+            <TrackToggle source={Track.Source.Camera} className="rounded-full h-10 w-10 flex-shrink-0" />
+            <DisconnectButton className="rounded-full h-10 w-10 bg-destructive hover:bg-destructive/90 flex-shrink-0">
+              <PhoneOff className="h-4 w-4" />
+            </DisconnectButton>
+          </div>
+
           {/* Other participants - Mobile: Horizontal scroll, Desktop: Vertical stack */}
           {otherParticipants.length > 0 && (
-            <div className="md:w-64 w-full flex md:flex-col flex-row gap-2 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-2 md:h-auto h-20 sm:h-28 flex-shrink-0">
+            <div className="md:w-64 w-full flex md:flex-col flex-row gap-2 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-2 md:h-auto h-24 sm:h-32 flex-shrink-0" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)' }}>
               {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
-                const audioPublication = Array.from(participant.audioTrackPublications.values())[0]
+                const audioPublications = [...participant.audioTrackPublications.values()]
+                const audioPublication = audioPublications[0]
                 const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
                 
                 return (
@@ -420,11 +431,12 @@ function RoomContent({
           )}
         </div>
 
-        <div className="absolute bottom-28 sm:bottom-32 md:bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 md:gap-3 bg-background/95 backdrop-blur-sm px-3 md:px-6 py-2 md:py-3 rounded-full border shadow-lg z-50 max-w-[calc(100vw-1rem)] md:max-w-none" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))', marginBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' }}>
-          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-10 w-10 md:h-12 md:w-12 flex-shrink-0" />
-          <TrackToggle source={Track.Source.Camera} className="rounded-full h-10 w-10 md:h-12 md:w-12 flex-shrink-0" />
-          <DisconnectButton className="rounded-full h-10 w-10 md:h-12 md:w-12 bg-destructive hover:bg-destructive/90 flex-shrink-0">
-            <PhoneOff className="h-4 w-4 md:h-5 md:w-5" />
+        {/* Controls - Desktop/Tablet only (mobile controls are in flex layout above) */}
+        <div className="hidden md:flex absolute bottom-8 left-1/2 -translate-x-1/2 items-center gap-3 bg-background/95 backdrop-blur-sm px-6 py-3 rounded-full border shadow-lg z-50" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)', marginBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)' }}>
+          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-12 w-12 flex-shrink-0" />
+          <TrackToggle source={Track.Source.Camera} className="rounded-full h-12 w-12 flex-shrink-0" />
+          <DisconnectButton className="rounded-full h-12 w-12 bg-destructive hover:bg-destructive/90 flex-shrink-0">
+            <PhoneOff className="h-5 w-5" />
           </DisconnectButton>
         </div>
 
