@@ -15,6 +15,9 @@ import {
   TrackToggle,
   DisconnectButton,
   useTracks,
+  ParticipantTile,
+  useParticipants,
+  ParticipantContext,
 } from "@livekit/components-react"
 import "@livekit/components-styles"
 import { Track, TrackPublication } from "livekit-client"
@@ -178,34 +181,30 @@ function RoomContent({
     }
   }, [session])
 
-  // Helper to check if a participant is the coach
-  const isCoachParticipant = (participantIdentity: string) => {
-    // If current user is coach and this is their identity, they're the coach
-    if (isCoach && participantIdentity === localParticipant.identity) {
-      return true
-    }
-    // For remote participants, we'd need to check their role
-    // For now, assume the local user is the coach if they're a coach
-    return false
+  // Get all participants using LiveKit hook
+  const participants = useParticipants()
+  
+  // Determine coach participant based on user role
+  // Logic:
+  // - If current user is a coach: they are the coach (show in main view)
+  // - If current user is a member: first remote participant is the coach (show in main view)
+  let coachParticipant: typeof participants[0] | undefined
+  
+  if (isCoach === true) {
+    // Current user is coach - they are the coach
+    coachParticipant = participants.find((p) => p.identity === localParticipant.identity)
+  } else if (isCoach === false) {
+    // Current user is member - first remote participant is the coach
+    coachParticipant = participants.find((p) => p.identity !== localParticipant.identity)
   }
-
-  // Separate participants into coach and others
-  const allParticipants = [
-    { participant: localParticipant, isLocal: true },
-    ...remoteParticipants.map((p) => ({ participant: p, isLocal: false })),
-  ]
-
-  // Sort: coach first, then others
-  const sortedParticipants = allParticipants.sort((a, b) => {
-    const aIsCoach = isCoachParticipant(a.participant.identity)
-    const bIsCoach = isCoachParticipant(b.participant.identity)
-    if (aIsCoach && !bIsCoach) return -1
-    if (!aIsCoach && bIsCoach) return 1
-    return 0
-  })
-
-  const coachParticipant = sortedParticipants.find((p) => isCoachParticipant(p.participant.identity))
-  const otherParticipants = sortedParticipants.filter((p) => !isCoachParticipant(p.participant.identity))
+  
+  // Fallback: if coach not identified, use first participant
+  if (!coachParticipant && participants.length > 0) {
+    coachParticipant = participants[0]
+  }
+  
+  // Other participants are everyone except the coach
+  const otherParticipants = participants.filter((p) => p.identity !== coachParticipant?.identity)
   
   // Helper to get track for a participant
   const getTrackForParticipant = (participantIdentity: string) => {
@@ -221,137 +220,66 @@ function RoomContent({
           isPanelOpen ? "w-[60%]" : "w-full"
         }`}
       >
-        <div className="h-full min-h-0 flex flex-col gap-2 p-2">
+        <div className="h-full min-h-0 flex gap-2 p-2">
           {/* Coach video - large main view */}
-          {coachParticipant && (
-            <div className="flex-1 min-h-0 relative rounded-lg overflow-hidden bg-black border-2 border-primary">
-              {(() => {
-                const { participant, isLocal } = coachParticipant
-                const trackRef = getTrackForParticipant(participant.identity)
-                const audioPublication = Array.from(participant.audioTrackPublications.values())[0]
-                const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
-                
-                return (
-                  <>
-                    {trackRef ? (
-                      <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                        <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center">
-                          <span className="text-3xl font-medium text-white">
-                            {(participant.name || participant.identity).charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded">
-                      <p className="text-sm font-medium text-white">
-                        {participant.name || participant.identity} {isLocal ? "(You - Coach)" : "(Coach)"}
-                      </p>
+          <div className="flex-1 min-h-0 relative rounded-lg overflow-hidden bg-black border-2 border-primary">
+            {coachParticipant ? (
+              <ParticipantContext.Provider value={coachParticipant}>
+                <ParticipantTile className="h-full w-full" />
+                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded z-10">
+                  <p className="text-sm font-medium text-white">
+                    {coachParticipant.name || coachParticipant.identity} {coachParticipant.identity === localParticipant.identity ? "(You - Coach)" : "(Coach)"}
+                  </p>
+                </div>
+                {(() => {
+                  const audioPublication = Array.from(coachParticipant.audioTrackPublications.values())[0]
+                  const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
+                  return isMuted ? (
+                    <div className="absolute top-2 right-2 bg-destructive p-2 rounded-full z-10">
+                      <MicOff className="h-4 w-4 text-destructive-foreground" />
                     </div>
-
-                    {isMuted && (
-                      <div className="absolute top-2 right-2 bg-destructive p-2 rounded-full">
-                        <MicOff className="h-4 w-4 text-destructive-foreground" />
-                      </div>
-                    )}
-                  </>
-                )
-              })()}
-            </div>
-          )}
-
-          {/* Other participants - small boxes in a grid */}
-          {otherParticipants.length > 0 && (
-            <div className={`grid gap-2 ${
-              otherParticipants.length === 1 
-                ? "grid-cols-1" 
-                : otherParticipants.length === 2 
-                ? "grid-cols-2" 
-                : "grid-cols-3"
-            }`} style={{ height: otherParticipants.length > 0 ? "200px" : "auto" }}>
-              {otherParticipants.map(({ participant, isLocal }) => {
-                const trackRef = getTrackForParticipant(participant.identity)
-                const audioPublication = Array.from(participant.audioTrackPublications.values())[0]
-                const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
-                
-                return (
-                  <div
-                    key={participant.identity}
-                    className="relative rounded-lg overflow-hidden bg-black border border-border h-full"
-                  >
-                    {trackRef ? (
-                      <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-                          <span className="text-lg font-medium text-white">
-                            {(participant.name || participant.identity).charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-xs">
-                      <p className="text-xs font-medium text-white truncate max-w-[120px]">
-                        {participant.name || participant.identity} {isLocal ? "(You)" : ""}
-                      </p>
-                    </div>
-
-                    {isMuted && (
-                      <div className="absolute top-1 right-1 bg-destructive p-1.5 rounded-full">
-                        <MicOff className="h-3 w-3 text-destructive-foreground" />
-                      </div>
-                    )}
+                  ) : null
+                })()}
+              </ParticipantContext.Provider>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center bg-gray-900">
+                <div className="text-center">
+                  <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                    <span className="text-3xl font-medium text-white">
+                      {localParticipant.name?.charAt(0).toUpperCase() || "C"}
+                    </span>
                   </div>
-                )
-              })}
-            </div>
-          )}
+                  <p className="text-muted-foreground">Waiting for coach...</p>
+                </div>
+              </div>
+            )}
+          </div>
 
-          {/* Fallback if no coach identified - show all participants in grid */}
-          {!coachParticipant && allParticipants.length > 0 && (
-            <div className={`h-full grid gap-2 ${
-              allParticipants.length === 1 
-                ? "grid-cols-1" 
-                : allParticipants.length === 2 
-                ? "grid-cols-2" 
-                : "grid-cols-3"
-            }`}>
-              {allParticipants.map(({ participant, isLocal }) => {
-                const trackRef = getTrackForParticipant(participant.identity)
+          {/* Other participants - small boxes on the right side */}
+          {otherParticipants.length > 0 && (
+            <div className="w-64 flex flex-col gap-2 overflow-y-auto">
+              {otherParticipants.map((participant) => {
+                const isLocal = participant.identity === localParticipant.identity
                 const audioPublication = Array.from(participant.audioTrackPublications.values())[0]
                 const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
                 
                 return (
                   <div
                     key={participant.identity}
-                    className={`relative rounded-lg overflow-hidden bg-black min-h-0 ${
-                      isLocal ? "border-2 border-primary" : "border border-border"
-                    }`}
+                    className="relative rounded-lg overflow-hidden bg-black border border-border flex-shrink-0"
+                    style={{ height: "180px" }}
                   >
-                    {trackRef ? (
-                      <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                        <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
-                          <span className="text-2xl font-medium text-white">
-                            {(participant.name || participant.identity).charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded">
-                      <p className="text-sm font-medium text-white">
+                    <ParticipantContext.Provider value={participant}>
+                      <ParticipantTile className="h-full w-full" />
+                    </ParticipantContext.Provider>
+                    <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded z-10">
+                      <p className="text-xs font-medium text-white truncate max-w-[200px]">
                         {participant.name || participant.identity} {isLocal ? "(You)" : ""}
                       </p>
                     </div>
-
-                    {isLocal && isMuted && (
-                      <div className="absolute top-2 right-2 bg-destructive p-2 rounded-full">
-                        <MicOff className="h-4 w-4 text-destructive-foreground" />
+                    {isMuted && (
+                      <div className="absolute top-1 right-1 bg-destructive p-1.5 rounded-full z-10">
+                        <MicOff className="h-3 w-3 text-destructive-foreground" />
                       </div>
                     )}
                   </div>
@@ -424,9 +352,9 @@ function RoomContent({
             className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide mt-0 h-[calc(100vh-120px)]"
           >
             <h3 className="font-semibold text-sm">Participants</h3>
-            {allParticipants
-              .filter((p) => !p.isLocal)
-              .map(({ participant }) => (
+            {participants
+              .filter((p) => p.identity !== localParticipant.identity)
+              .map((participant) => (
                 <Card key={participant.identity} className="p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
