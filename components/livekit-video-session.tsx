@@ -354,9 +354,9 @@ function RoomContent({
               </div>
             )}
             
-            {/* Participant videos - positioned as small boxes around coach */}
+            {/* Participant videos - positioned as small boxes around coach (Desktop/Tablet only) */}
             {otherParticipants.length > 0 && (
-              <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20 max-h-[40%] overflow-y-auto scrollbar-hide">
+              <div className="hidden md:flex absolute bottom-4 right-4 flex-col gap-2 z-20 max-h-[40%] overflow-y-auto scrollbar-hide">
                 {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublications = [...participant.audioTrackPublications.values()]
@@ -477,9 +477,20 @@ function RoomContent({
         </div>
 
         {/* Controls - Clean, minimal design inspired by LiveKit Agents */}
-        <div className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 bg-black/80 backdrop-blur-xl px-4 md:px-8 py-3 md:py-4 rounded-2xl border border-white/10 shadow-2xl z-50 max-w-[calc(100vw-2rem)] md:max-w-none" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))', marginBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' }}>
-          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/10 hover:bg-white/20 border border-white/20 transition-all" />
-          <TrackToggle source={Track.Source.Camera} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/10 hover:bg-white/20 border border-white/20 transition-all" />
+        <div 
+          className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 px-4 md:px-8 py-3 md:py-4 rounded-2xl z-50 max-w-[calc(100vw-2rem)] md:max-w-none"
+          style={{ 
+            backgroundColor: 'rgba(209, 213, 219, 0.95) !important', // gray-300 - very light gray
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.6)',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))', 
+            marginBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' 
+          }}
+        >
+          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/30 hover:bg-white/40 border border-white/50 transition-all" />
+          <TrackToggle source={Track.Source.Camera} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/30 hover:bg-white/40 border border-white/50 transition-all" />
           <DisconnectButton className="rounded-full h-11 w-11 md:h-14 md:w-14 bg-red-500/90 hover:bg-red-600 border border-red-400/50 flex-shrink-0 transition-all shadow-lg">
             <PhoneOff className="h-5 w-5 md:h-6 md:w-6" />
           </DisconnectButton>
