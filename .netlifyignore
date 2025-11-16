@@ -1,0 +1,28 @@
+# Netlify ignore file - excludes files from deployment and secret scanning
+
+# Build output and cache
+.netlify/
+.next/
+out/
+dist/
+build/
+
+# Documentation files (contain example env var names)
+*.md
+!README.md
+
+# Dependencies
+node_modules/
+
+# Environment files
+.env*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
