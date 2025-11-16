@@ -6,12 +6,13 @@ import { saveSubjectProfile } from '@/lib/dynamodb-subjects';
 import { randomUUID } from 'crypto';
 
 // Initialize SES client
+// Use JAK_ prefixed vars for Netlify (AWS_* are reserved), fallback to AWS_* for local dev
 const sesClient = new SESClient({
-  region: process.env.AWS_REGION || 'us-east-2',
-  credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+  region: process.env.JAK_AWS_REGION || process.env.AWS_REGION || 'us-east-2',
+  credentials: (process.env.JAK_AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID) && (process.env.JAK_AWS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY)
     ? {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        accessKeyId: process.env.JAK_AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.JAK_AWS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY,
       }
     : undefined,
 });
