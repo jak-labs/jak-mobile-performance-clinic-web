@@ -12,32 +12,35 @@ interface ExtendedSession extends Session {
   }
 }
 
-if (!process.env.COGNITO_CLIENT_ID || !process.env.COGNITO_ISSUER) {
-  console.error('Environment variables check failed:', { 
-    COGNITO_CLIENT_ID: !!process.env.COGNITO_CLIENT_ID,
-    COGNITO_ISSUER: !!process.env.COGNITO_ISSUER
+// Lazy initialization function to avoid checking env vars at build time
+function getUserPool() {
+  if (!process.env.COGNITO_CLIENT_ID || !process.env.COGNITO_ISSUER) {
+    console.error('Environment variables check failed:', { 
+      COGNITO_CLIENT_ID: !!process.env.COGNITO_CLIENT_ID,
+      COGNITO_ISSUER: !!process.env.COGNITO_ISSUER
+    });
+    throw new Error('Missing required environment variables for Cognito authentication');
+  }
+
+  // Extract UserPoolId from COGNITO_ISSUER
+  const userPoolId = process.env.COGNITO_ISSUER.split('/').pop();
+  if (!userPoolId) {
+    console.error('Failed to extract UserPoolId from COGNITO_ISSUER:', process.env.COGNITO_ISSUER);
+    throw new Error('Invalid COGNITO_ISSUER format');
+  }
+
+  const poolData = {
+    UserPoolId: userPoolId,
+    ClientId: process.env.COGNITO_CLIENT_ID
+  };
+
+  console.log('Initializing with pool data:', { 
+    UserPoolId: poolData.UserPoolId,
+    ClientId: poolData.ClientId 
   });
-  throw new Error('Missing required environment variables for Cognito authentication');
+
+  return new CognitoUserPool(poolData);
 }
-
-// Extract UserPoolId from COGNITO_ISSUER
-const userPoolId = process.env.COGNITO_ISSUER.split('/').pop();
-if (!userPoolId) {
-  console.error('Failed to extract UserPoolId from COGNITO_ISSUER:', process.env.COGNITO_ISSUER);
-  throw new Error('Invalid COGNITO_ISSUER format');
-}
-
-const poolData = {
-  UserPoolId: userPoolId,
-  ClientId: process.env.COGNITO_CLIENT_ID
-};
-
-console.log('Initializing with pool data:', { 
-  UserPoolId: poolData.UserPoolId,
-  ClientId: poolData.ClientId 
-});
-
-const userPool = new CognitoUserPool(poolData);
 
 export const authOptions: NextAuthOptions = {
   debug: process.env.NODE_ENV === 'development',
@@ -56,6 +59,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           return new Promise((resolve, reject) => {
+            const userPool = getUserPool();
             const user = new AWSCognitoUser({
               Username: credentials.email,
               Pool: userPool

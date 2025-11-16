@@ -4,33 +4,48 @@ import { CognitoIdentityProviderClient, AdminListGroupsForUserCommand, AdminGetU
 import { saveUserProfile } from '@/lib/dynamodb';
 import { saveSubjectProfile } from '@/lib/dynamodb-subjects';
 
-if (!process.env.COGNITO_CLIENT_ID || !process.env.COGNITO_ISSUER) {
-  throw new Error('Missing required environment variables for Cognito authentication');
+// Lazy initialization functions to avoid checking env vars at build time
+function getUserPool() {
+  if (!process.env.COGNITO_CLIENT_ID || !process.env.COGNITO_ISSUER) {
+    throw new Error('Missing required environment variables for Cognito authentication');
+  }
+
+  // Extract UserPoolId from COGNITO_ISSUER
+  const userPoolId = process.env.COGNITO_ISSUER.split('/').pop();
+  if (!userPoolId) {
+    throw new Error('Invalid COGNITO_ISSUER format');
+  }
+
+  const poolData = {
+    UserPoolId: userPoolId,
+    ClientId: process.env.COGNITO_CLIENT_ID
+  };
+
+  return new CognitoUserPool(poolData);
 }
 
-// Extract UserPoolId from COGNITO_ISSUER
-const userPoolId = process.env.COGNITO_ISSUER.split('/').pop();
-if (!userPoolId) {
-  throw new Error('Invalid COGNITO_ISSUER format');
+function getUserPoolId() {
+  if (!process.env.COGNITO_ISSUER) {
+    throw new Error('Missing required environment variables for Cognito authentication');
+  }
+  const userPoolId = process.env.COGNITO_ISSUER.split('/').pop();
+  if (!userPoolId) {
+    throw new Error('Invalid COGNITO_ISSUER format');
+  }
+  return userPoolId;
 }
 
-const poolData = {
-  UserPoolId: userPoolId,
-  ClientId: process.env.COGNITO_CLIENT_ID
-};
-
-const userPool = new CognitoUserPool(poolData);
-
-// Initialize Cognito Identity Provider client
-const cognitoClient = new CognitoIdentityProviderClient({
-  region: process.env.AWS_REGION || 'us-east-2',
-  credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-    ? {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      }
-    : undefined,
-});
+function getCognitoClient() {
+  return new CognitoIdentityProviderClient({
+    region: process.env.AWS_REGION || 'us-east-2',
+    credentials: process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+      ? {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        }
+      : undefined,
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -51,6 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     return new Promise((resolve) => {
+      const userPool = getUserPool();
       const cognitoUser = new CognitoUser({
         Username: email,
         Pool: userPool
@@ -70,10 +86,8 @@ export async function POST(req: NextRequest) {
 
         // Get user's groups to determine if they're a Coach or Member
         try {
-          const userPoolId = process.env.COGNITO_ISSUER?.split('/').pop();
-          if (!userPoolId) {
-            throw new Error('Invalid COGNITO_ISSUER format');
-          }
+          const cognitoClient = getCognitoClient();
+          const userPoolId = getUserPoolId();
 
           // Get user's groups
           const groupsResponse = await cognitoClient.send(

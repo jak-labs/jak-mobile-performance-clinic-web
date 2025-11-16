@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CognitoUserPool, CognitoUser } from 'amazon-cognito-identity-js';
 
-if (!process.env.COGNITO_CLIENT_ID || !process.env.COGNITO_ISSUER) {
-  throw new Error('Missing required environment variables for Cognito authentication');
+// Lazy initialization function to avoid checking env vars at build time
+function getUserPool() {
+  if (!process.env.COGNITO_CLIENT_ID || !process.env.COGNITO_ISSUER) {
+    throw new Error('Missing required environment variables for Cognito authentication');
+  }
+
+  // Extract UserPoolId from COGNITO_ISSUER
+  const userPoolId = process.env.COGNITO_ISSUER.split('/').pop();
+  if (!userPoolId) {
+    throw new Error('Invalid COGNITO_ISSUER format');
+  }
+
+  const poolData = {
+    UserPoolId: userPoolId,
+    ClientId: process.env.COGNITO_CLIENT_ID
+  };
+
+  return new CognitoUserPool(poolData);
 }
-
-// Extract UserPoolId from COGNITO_ISSUER
-const userPoolId = process.env.COGNITO_ISSUER.split('/').pop();
-if (!userPoolId) {
-  throw new Error('Invalid COGNITO_ISSUER format');
-}
-
-const poolData = {
-  UserPoolId: userPoolId,
-  ClientId: process.env.COGNITO_CLIENT_ID
-};
-
-const userPool = new CognitoUserPool(poolData);
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,6 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     return new Promise((resolve) => {
+      const userPool = getUserPool();
       const cognitoUser = new CognitoUser({
         Username: email,
         Pool: userPool
