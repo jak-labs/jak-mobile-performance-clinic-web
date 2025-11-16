@@ -154,6 +154,7 @@ function RoomContent({
 }) {
   const { data: session } = useSession()
   const [isCoach, setIsCoach] = useState<boolean | null>(null)
+  const [participantInfo, setParticipantInfo] = useState<Record<string, { firstName: string; lastName: string; fullName: string; label: string; role: string }>>({})
   const room = useRoomContext()
   const localParticipant = room.localParticipant
   const remoteParticipants = Array.from(room.remoteParticipants.values())
@@ -184,6 +185,61 @@ function RoomContent({
 
   // Get all participants using LiveKit hook
   const participants = useParticipants()
+
+  // Fetch participant info (first name, last name, label) for all participants
+  useEffect(() => {
+    const fetchParticipantInfo = async () => {
+      const allParticipants = [
+        { identity: localParticipant.identity, isLocal: true },
+        ...remoteParticipants.map((p) => ({ identity: p.identity, isLocal: false })),
+      ]
+
+      const infoPromises = allParticipants.map(async (p) => {
+        // Skip if we already have info for this participant
+        if (participantInfo[p.identity]) {
+          return null
+        }
+
+        try {
+          const response = await fetch(`/api/participants/${p.identity}`)
+          if (response.ok) {
+            const data = await response.json()
+            return {
+              identity: p.identity,
+              info: {
+                firstName: data.firstName || '',
+                lastName: data.lastName || '',
+                fullName: data.fullName || p.identity,
+                label: data.label || 'Participant',
+                role: data.role || 'unknown',
+              },
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching info for participant ${p.identity}:`, error)
+        }
+        return null
+      })
+
+      const results = await Promise.all(infoPromises)
+      const newInfo: typeof participantInfo = { ...participantInfo }
+      
+      results.forEach((result) => {
+        if (result) {
+          newInfo[result.identity] = result.info
+        }
+      })
+
+      if (Object.keys(newInfo).length > Object.keys(participantInfo).length) {
+        setParticipantInfo(newInfo)
+      }
+    }
+
+    if (participants.length > 0) {
+      fetchParticipantInfo()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants.length, localParticipant.identity, remoteParticipants.length])
   
   // Determine coach participant based on user role
   // Logic:
@@ -242,9 +298,32 @@ function RoomContent({
                     </div>
                   )}
                   <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded z-10">
-                    <p className="text-sm font-medium text-white">
-                      {coachParticipant.name || coachParticipant.identity} {coachParticipant.identity === localParticipant.identity ? "(You - Coach)" : "(Coach)"}
-                    </p>
+                    {(() => {
+                      const info = participantInfo[coachParticipant.identity]
+                      const firstName = info?.firstName || ''
+                      const lastName = info?.lastName || ''
+                      const label = info?.label || 'Coach'
+                      const isLocal = coachParticipant.identity === localParticipant.identity
+                      
+                      return (
+                        <div className="flex flex-col">
+                          {(firstName || lastName) ? (
+                            <>
+                              <p className="text-sm font-semibold text-white">
+                                {firstName} {lastName}
+                              </p>
+                              <p className="text-xs text-white/80">
+                                {label} {isLocal ? "• You" : ""}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-sm font-medium text-white">
+                              {coachParticipant.name || coachParticipant.identity} {isLocal ? "(You - Coach)" : "(Coach)"}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                   {(() => {
                     const audioPublication = Array.from(coachParticipant.audioTrackPublications.values())[0]
@@ -304,9 +383,27 @@ function RoomContent({
                       })()}
                     </ParticipantContext.Provider>
                     <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded z-10">
-                      <p className="text-xs font-medium text-white truncate max-w-[200px]">
-                        {participant.name || participant.identity} {isLocal ? "(You)" : ""}
-                      </p>
+                      {(() => {
+                        const info = participantInfo[participant.identity]
+                        const firstName = info?.firstName || ''
+                        const lastName = info?.lastName || ''
+                        const label = info?.label || 'Participant'
+                        
+                        return (firstName || lastName) ? (
+                          <div className="flex flex-col">
+                            <p className="text-xs font-semibold text-white truncate max-w-[200px]">
+                              {firstName} {lastName}
+                            </p>
+                            <p className="text-[10px] text-white/80 truncate max-w-[200px]">
+                              {label} {isLocal ? "• You" : ""}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-xs font-medium text-white truncate max-w-[200px]">
+                            {participant.name || participant.identity} {isLocal ? "(You)" : ""}
+                          </p>
+                        )
+                      })()}
                     </div>
                     {isMuted && (
                       <div className="absolute top-1 right-1 bg-destructive p-1.5 rounded-full z-10">
