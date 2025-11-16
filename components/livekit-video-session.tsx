@@ -316,10 +316,10 @@ function RoomContent({
           isPanelOpen ? "md:w-[60%] w-full" : "w-full"
         }`}
       >
-        {/* Main video area - Speaker layout: Coach as main speaker with participants at bottom */}
-        <div className="h-full min-h-0 relative overflow-hidden bg-black flex flex-col">
+        {/* Main video area - Speaker layout: Coach as main speaker with participants on right side */}
+        <div className="h-full min-h-0 relative overflow-hidden bg-black flex flex-row">
           {/* Coach video - large main view (speaker layout) */}
-          <div className="flex-1 relative rounded-xl overflow-hidden bg-gray-900 m-2 md:m-4 mb-2">
+          <div className="flex-1 relative rounded-xl overflow-hidden bg-gray-900 m-2 md:m-4">
             {coachParticipant ? (() => {
               const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
               return (
@@ -391,9 +391,9 @@ function RoomContent({
             )}
           </div>
           
-          {/* Participant row container for speaker layout (Desktop/Tablet) - horizontal row at bottom */}
+          {/* Participant boxes on right side (Desktop/Tablet) - vertical stack */}
           {otherParticipants.length > 0 && (
-            <div className="hidden md:flex flex-row gap-2 justify-center px-2 pb-2 overflow-x-auto scrollbar-hide">
+            <div className="hidden md:flex flex-col gap-2 justify-start px-2 py-2 overflow-y-auto scrollbar-hide w-40 md:w-48">
               {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublications = [...participant.audioTrackPublications.values()]
@@ -403,7 +403,7 @@ function RoomContent({
                 return (
                   <div
                     key={participant.identity}
-                    className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-32 md:w-40 h-20 md:h-24 flex-shrink-0 shadow-lg hover:border-white/20 transition-all hover:scale-105"
+                    className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-full aspect-video flex-shrink-0 shadow-lg hover:border-white/20 transition-all hover:scale-105"
                   >
                     <ParticipantContext.Provider value={participant}>
                       {(() => {
