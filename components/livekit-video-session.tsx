@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight } from "lucide-react"
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -168,6 +168,42 @@ function RoomContent({
     onlySubscribed: false,
   })
 
+  // Track mic and camera states reactively
+  const [isMicMuted, setIsMicMuted] = useState(true)
+  const [isCameraOff, setIsCameraOff] = useState(true)
+
+  useEffect(() => {
+    const updateTrackStates = () => {
+      const micPublications = Array.from(localParticipant.audioTrackPublications.values())
+      const cameraPublications = Array.from(localParticipant.videoTrackPublications.values())
+      const micPublication = micPublications.find(pub => pub.source === Track.Source.Microphone)
+      const cameraPublication = cameraPublications.find(pub => pub.source === Track.Source.Camera)
+      
+      setIsMicMuted(micPublication ? micPublication.isMuted : true)
+      setIsCameraOff(!cameraPublication || !cameraPublication.isSubscribed || cameraPublication.isMuted)
+    }
+
+    updateTrackStates()
+
+    // Listen for track publication changes
+    const handleTrackPublished = () => updateTrackStates()
+    const handleTrackUnpublished = () => updateTrackStates()
+    const handleTrackMuted = () => updateTrackStates()
+    const handleTrackUnmuted = () => updateTrackStates()
+
+    localParticipant.on('trackPublished', handleTrackPublished)
+    localParticipant.on('trackUnpublished', handleTrackUnpublished)
+    localParticipant.on('trackMuted', handleTrackMuted)
+    localParticipant.on('trackUnmuted', handleTrackUnmuted)
+
+    return () => {
+      localParticipant.off('trackPublished', handleTrackPublished)
+      localParticipant.off('trackUnpublished', handleTrackUnpublished)
+      localParticipant.off('trackMuted', handleTrackMuted)
+      localParticipant.off('trackUnmuted', handleTrackUnmuted)
+    }
+  }, [localParticipant])
+
   // Fetch user role to identify coach
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -280,10 +316,10 @@ function RoomContent({
           isPanelOpen ? "md:w-[60%] w-full" : "w-full"
         }`}
       >
-        {/* Main video area - Coach centered with participants around */}
-        <div className="h-full min-h-0 relative overflow-hidden bg-black p-2 md:p-4">
-          {/* Coach video - large main view centered */}
-          <div className="h-full w-full relative rounded-xl overflow-hidden bg-gray-900">
+        {/* Main video area - Speaker layout: Coach as main speaker with participants at bottom */}
+        <div className="h-full min-h-0 relative overflow-hidden bg-black flex flex-col">
+          {/* Coach video - large main view (speaker layout) */}
+          <div className="flex-1 relative rounded-xl overflow-hidden bg-gray-900 m-2 md:m-4 mb-2">
             {coachParticipant ? (() => {
               const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
               return (
@@ -353,21 +389,22 @@ function RoomContent({
                 </div>
               </div>
             )}
-            
-            {/* Participant videos - positioned as small boxes around coach (Desktop/Tablet only) */}
-            {otherParticipants.length > 0 && (
-              <div className="hidden md:flex absolute bottom-4 right-4 flex-col gap-2 z-20 max-h-[40%] overflow-y-auto scrollbar-hide">
-                {otherParticipants.map((participant) => {
+          </div>
+          
+          {/* Participant row container for speaker layout (Desktop/Tablet) - horizontal row at bottom */}
+          {otherParticipants.length > 0 && (
+            <div className="hidden md:flex flex-row gap-2 justify-center px-2 pb-2 overflow-x-auto scrollbar-hide">
+              {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublications = [...participant.audioTrackPublications.values()]
                 const audioPublication = audioPublications[0]
                 const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
                 
-                  return (
-                    <div
-                      key={participant.identity}
-                      className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-32 md:w-40 h-24 md:h-32 flex-shrink-0 shadow-lg hover:border-white/20 transition-all hover:scale-105"
-                    >
+                return (
+                  <div
+                    key={participant.identity}
+                    className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-32 md:w-40 h-20 md:h-24 flex-shrink-0 shadow-lg hover:border-white/20 transition-all hover:scale-105"
+                  >
                     <ParticipantContext.Provider value={participant}>
                       {(() => {
                         const participantTrackRef = getTrackForParticipant(participant.identity)
@@ -386,34 +423,33 @@ function RoomContent({
                         )
                       })()}
                     </ParticipantContext.Provider>
-                      <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-1.5 py-1 rounded z-10">
-                        {(() => {
-                          const info = participantInfo[participant.identity]
-                          const firstName = info?.firstName || ''
-                          const lastName = info?.lastName || ''
-                          
-                          return (firstName || lastName) ? (
-                            <p className="text-[10px] font-semibold text-white truncate max-w-[120px]">
-                              {firstName} {lastName}
-                            </p>
-                          ) : (
-                            <p className="text-[10px] font-medium text-white truncate max-w-[120px]">
-                              {participant.name || participant.identity}
-                            </p>
-                          )
-                        })()}
-                      </div>
-                      {isMuted && (
-                        <div className="absolute top-1 right-1 bg-red-500/90 p-1 rounded-full z-10">
-                          <MicOff className="h-2.5 w-2.5 text-white" />
-                        </div>
-                      )}
+                    <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-1.5 py-1 rounded z-10">
+                      {(() => {
+                        const info = participantInfo[participant.identity]
+                        const firstName = info?.firstName || ''
+                        const lastName = info?.lastName || ''
+                        
+                        return (firstName || lastName) ? (
+                          <p className="text-[10px] font-semibold text-white truncate max-w-[120px]">
+                            {firstName} {lastName}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] font-medium text-white truncate max-w-[120px]">
+                            {participant.name || participant.identity}
+                          </p>
+                        )
+                      })()}
                     </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+                    {isMuted && (
+                      <div className="absolute top-1 right-1 bg-red-500/90 p-1 rounded-full z-10">
+                        <MicOff className="h-2.5 w-2.5 text-white" />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
           
           {/* Mobile: Horizontal scrollable participant row at bottom */}
           {otherParticipants.length > 0 && (
@@ -476,24 +512,60 @@ function RoomContent({
           )}
         </div>
 
-        {/* Controls - Clean, minimal design inspired by LiveKit Agents */}
+        {/* Controls - White pill-shaped bar with simple black icons */}
         <div 
-          className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 px-4 md:px-8 py-3 md:py-4 rounded-2xl z-50 max-w-[calc(100vw-2rem)] md:max-w-none"
+          className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 px-4 md:px-6 py-2.5 md:py-3 rounded-full z-50 max-w-[calc(100vw-2rem)] md:max-w-none bg-white shadow-lg"
           style={{ 
-            backgroundColor: 'rgba(209, 213, 219, 0.95) !important', // gray-300 - very light gray
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.6)',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
             paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))', 
             marginBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' 
           }}
         >
-          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/30 hover:bg-white/40 border border-white/50 transition-all" />
-          <TrackToggle source={Track.Source.Camera} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/30 hover:bg-white/40 border border-white/50 transition-all" />
-          <DisconnectButton className="rounded-full h-11 w-11 md:h-14 md:w-14 bg-red-500/90 hover:bg-red-600 border border-red-400/50 flex-shrink-0 transition-all shadow-lg">
-            <PhoneOff className="h-5 w-5 md:h-6 md:w-6" />
-          </DisconnectButton>
+          <button
+            onClick={async () => {
+              const micPub = Array.from(localParticipant.audioTrackPublications.values())
+                .find(pub => pub.source === Track.Source.Microphone)
+              if (micPub?.track) {
+                if (micPub.isMuted) {
+                  await micPub.track.unmute()
+                } else {
+                  await micPub.track.mute()
+                }
+              }
+            }}
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
+          >
+            {isMicMuted ? (
+              <MicOff className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+            ) : (
+              <Mic className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+            )}
+          </button>
+          <button
+            onClick={async () => {
+              const cameraPub = Array.from(localParticipant.videoTrackPublications.values())
+                .find(pub => pub.source === Track.Source.Camera)
+              if (cameraPub?.track) {
+                if (cameraPub.isMuted) {
+                  await cameraPub.track.unmute()
+                } else {
+                  await cameraPub.track.mute()
+                }
+              }
+            }}
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
+          >
+            {isCameraOff ? (
+              <VideoOff className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+            ) : (
+              <Video className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+            )}
+          </button>
+          <button
+            onClick={() => room.disconnect()}
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60 rounded-full h-10 w-10 md:h-12 md:w-12"
+          >
+            <PhoneOff className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+          </button>
         </div>
 
         {/* Session info - Clean, minimal badges */}

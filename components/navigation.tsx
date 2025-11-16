@@ -94,14 +94,6 @@ export default function Navigation() {
                 <Image src="/jak-labs-logo.png" alt="JAK Labs" width={120} height={40} className="h-10 w-auto" />
               </Link>
 
-              {!isMember && (
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="v2-toggle" className="text-sm text-muted-foreground cursor-pointer">
-                    v2 Features
-                  </Label>
-                  <Switch id="v2-toggle" checked={v2Enabled} onCheckedChange={setV2Enabled} />
-                </div>
-              )}
             </div>
 
             {/* Navigation items */}
