@@ -277,12 +277,13 @@ function RoomContent({
     <>
       <div
         className={`relative h-full flex flex-col transition-all duration-300 ease-in-out ${
-          isPanelOpen ? "w-[60%]" : "w-full"
+          isPanelOpen ? "md:w-[60%] w-full" : "w-full"
         }`}
       >
-        <div className="h-full min-h-0 flex gap-0 p-0">
+        {/* Mobile: Stack vertically, Desktop: Side by side */}
+        <div className="h-full min-h-0 flex flex-col md:flex-row gap-0 p-0">
           {/* Coach video - large main view */}
-          <div className="flex-1 min-h-0 relative overflow-hidden bg-black border-r-2 border-primary">
+          <div className="flex-1 min-h-0 relative overflow-hidden bg-black md:border-r-2 border-primary">
             {coachParticipant ? (() => {
               const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
               return (
@@ -300,7 +301,7 @@ function RoomContent({
                       </div>
                     </div>
                   )}
-                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded z-10">
+                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 md:px-3 py-1 md:py-1.5 rounded z-10">
                     {(() => {
                       const info = participantInfo[coachParticipant.identity]
                       const firstName = info?.firstName || ''
@@ -312,15 +313,15 @@ function RoomContent({
                         <div className="flex flex-col">
                           {(firstName || lastName) ? (
                             <>
-                              <p className="text-sm font-semibold text-white">
+                              <p className="text-xs md:text-sm font-semibold text-white">
                                 {firstName} {lastName}
                               </p>
-                              <p className="text-xs text-white/80">
+                              <p className="text-[10px] md:text-xs text-white/80">
                                 {label} {isLocal ? "• You" : ""}
                               </p>
                             </>
                           ) : (
-                            <p className="text-sm font-medium text-white">
+                            <p className="text-xs md:text-sm font-medium text-white">
                               {coachParticipant.name || coachParticipant.identity} {isLocal ? "(You - Coach)" : "(Coach)"}
                             </p>
                           )}
@@ -353,9 +354,9 @@ function RoomContent({
             )}
           </div>
 
-          {/* Other participants - small boxes on the right side */}
+          {/* Other participants - Mobile: Horizontal scroll, Desktop: Vertical stack */}
           {otherParticipants.length > 0 && (
-            <div className="w-64 flex flex-col gap-2 overflow-y-auto p-2">
+            <div className="md:w-64 w-full flex md:flex-col flex-row gap-2 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-2 md:h-auto h-48">
               {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublication = Array.from(participant.audioTrackPublications.values())[0]
@@ -364,8 +365,7 @@ function RoomContent({
                 return (
                   <div
                     key={participant.identity}
-                    className="relative rounded-lg overflow-hidden bg-black border border-border flex-shrink-0"
-                    style={{ height: "180px" }}
+                    className="relative rounded-lg overflow-hidden bg-black border border-border flex-shrink-0 md:h-[180px] h-full w-48 md:w-auto"
                   >
                     <ParticipantContext.Provider value={participant}>
                       {(() => {
@@ -420,29 +420,29 @@ function RoomContent({
           )}
         </div>
 
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-background/95 backdrop-blur-sm px-6 py-3 rounded-full border shadow-lg z-10">
-          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-12 w-12" />
-          <TrackToggle source={Track.Source.Camera} className="rounded-full h-12 w-12" />
-          <DisconnectButton className="rounded-full h-12 w-12 bg-destructive hover:bg-destructive/90">
-            <PhoneOff className="h-5 w-5" />
+        <div className="absolute bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 md:gap-3 bg-background/95 backdrop-blur-sm px-3 md:px-6 py-2 md:py-3 rounded-full border shadow-lg z-50 max-w-[calc(100vw-1rem)] md:max-w-none">
+          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-10 w-10 md:h-12 md:w-12 flex-shrink-0" />
+          <TrackToggle source={Track.Source.Camera} className="rounded-full h-10 w-10 md:h-12 md:w-12 flex-shrink-0" />
+          <DisconnectButton className="rounded-full h-10 w-10 md:h-12 md:w-12 bg-destructive hover:bg-destructive/90 flex-shrink-0">
+            <PhoneOff className="h-4 w-4 md:h-5 md:w-5" />
           </DisconnectButton>
         </div>
 
-        <div className="absolute top-4 left-4 bg-background/95 backdrop-blur-sm px-4 py-2 rounded-lg border z-10">
-          <p className="text-xs text-muted-foreground">Session Duration</p>
-          <p className="text-sm font-mono font-semibold">{sessionDuration}</p>
+        <div className="absolute top-2 md:top-4 left-2 md:left-4 bg-background/95 backdrop-blur-sm px-2 md:px-4 py-1 md:py-2 rounded-lg border z-10">
+          <p className="text-[10px] md:text-xs text-muted-foreground">Session Duration</p>
+          <p className="text-xs md:text-sm font-mono font-semibold">{sessionDuration}</p>
         </div>
 
-        <div className="absolute top-4 right-4 flex items-center gap-2 bg-background/95 backdrop-blur-sm px-3 py-2 rounded-lg border z-10">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-xs font-medium">Connected</span>
+        <div className="absolute top-2 md:top-4 right-2 md:right-4 flex items-center gap-1 md:gap-2 bg-background/95 backdrop-blur-sm px-2 md:px-3 py-1 md:py-2 rounded-lg border z-10">
+          <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="text-[10px] md:text-xs font-medium">Connected</span>
         </div>
       </div>
 
       <Button
         variant="secondary"
         size="icon"
-        className={`absolute top-1/2 -translate-y-1/2 h-16 w-12 rounded-2xl shadow-lg z-20 transition-all duration-300 ${
+        className={`hidden md:flex absolute top-1/2 -translate-y-1/2 h-16 w-12 rounded-2xl shadow-lg z-20 transition-all duration-300 ${
           isPanelOpen ? "right-[40%]" : "right-4"
         }`}
         onClick={() => setIsPanelOpen(!isPanelOpen)}
@@ -451,7 +451,7 @@ function RoomContent({
       </Button>
 
       <div
-        className={`h-full border-l bg-background flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${
+        className={`hidden md:flex h-full border-l bg-background flex-col transition-all duration-300 ease-in-out overflow-hidden ${
           isPanelOpen ? "w-[40%] min-w-[500px] max-w-[700px]" : "w-0 min-w-0 border-0"
         }`}
       >
