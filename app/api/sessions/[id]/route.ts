@@ -18,7 +18,7 @@ const cognitoClient = new CognitoIdentityProviderClient({
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Get authenticated user
@@ -31,7 +31,7 @@ export async function GET(
       );
     }
 
-    const sessionId = params.id;
+    const { id: sessionId } = await params;
     const userId = session.user.id;
 
     // Check if user is a coach or member

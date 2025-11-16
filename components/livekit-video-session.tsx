@@ -18,6 +18,7 @@ import {
   ParticipantTile,
   useParticipants,
   ParticipantContext,
+  TrackRefContext,
 } from "@livekit/components-react"
 import "@livekit/components-styles"
 import { Track, TrackPublication } from "livekit-client"
@@ -223,25 +224,40 @@ function RoomContent({
         <div className="h-full min-h-0 flex gap-2 p-2">
           {/* Coach video - large main view */}
           <div className="flex-1 min-h-0 relative rounded-lg overflow-hidden bg-black border-2 border-primary">
-            {coachParticipant ? (
-              <ParticipantContext.Provider value={coachParticipant}>
-                <ParticipantTile className="h-full w-full" />
-                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded z-10">
-                  <p className="text-sm font-medium text-white">
-                    {coachParticipant.name || coachParticipant.identity} {coachParticipant.identity === localParticipant.identity ? "(You - Coach)" : "(Coach)"}
-                  </p>
-                </div>
-                {(() => {
-                  const audioPublication = Array.from(coachParticipant.audioTrackPublications.values())[0]
-                  const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
-                  return isMuted ? (
-                    <div className="absolute top-2 right-2 bg-destructive p-2 rounded-full z-10">
-                      <MicOff className="h-4 w-4 text-destructive-foreground" />
+            {coachParticipant ? (() => {
+              const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
+              return (
+                <ParticipantContext.Provider value={coachParticipant}>
+                  {coachTrackRef ? (
+                    <TrackRefContext.Provider value={coachTrackRef}>
+                      <ParticipantTile className="h-full w-full" />
+                    </TrackRefContext.Provider>
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center bg-gray-900">
+                      <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center">
+                        <span className="text-3xl font-medium text-white">
+                          {(coachParticipant.name || coachParticipant.identity).charAt(0).toUpperCase()}
+                        </span>
+                      </div>
                     </div>
-                  ) : null
-                })()}
-              </ParticipantContext.Provider>
-            ) : (
+                  )}
+                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded z-10">
+                    <p className="text-sm font-medium text-white">
+                      {coachParticipant.name || coachParticipant.identity} {coachParticipant.identity === localParticipant.identity ? "(You - Coach)" : "(Coach)"}
+                    </p>
+                  </div>
+                  {(() => {
+                    const audioPublication = Array.from(coachParticipant.audioTrackPublications.values())[0]
+                    const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
+                    return isMuted ? (
+                      <div className="absolute top-2 right-2 bg-destructive p-2 rounded-full z-10">
+                        <MicOff className="h-4 w-4 text-destructive-foreground" />
+                      </div>
+                    ) : null
+                  })()}
+                </ParticipantContext.Provider>
+              )
+            })() : (
               <div className="h-full w-full flex items-center justify-center bg-gray-900">
                 <div className="text-center">
                   <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
@@ -270,7 +286,22 @@ function RoomContent({
                     style={{ height: "180px" }}
                   >
                     <ParticipantContext.Provider value={participant}>
-                      <ParticipantTile className="h-full w-full" />
+                      {(() => {
+                        const participantTrackRef = getTrackForParticipant(participant.identity)
+                        return participantTrackRef ? (
+                          <TrackRefContext.Provider value={participantTrackRef}>
+                            <ParticipantTile className="h-full w-full" />
+                          </TrackRefContext.Provider>
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center bg-gray-900">
+                            <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
+                              <span className="text-xl font-medium text-white">
+                                {(participant.name || participant.identity).charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </ParticipantContext.Provider>
                     <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded z-10">
                       <p className="text-xs font-medium text-white truncate max-w-[200px]">

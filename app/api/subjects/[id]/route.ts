@@ -6,7 +6,7 @@ import { getUserProfile } from '@/lib/dynamodb';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -18,7 +18,7 @@ export async function GET(
       );
     }
 
-    const subjectId = params.id;
+    const { id: subjectId } = await params;
 
     // Members can only view their own profile
     if (session.user.id !== subjectId) {
@@ -87,7 +87,7 @@ export async function GET(
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -99,7 +99,7 @@ export async function PUT(
       );
     }
 
-    const subjectId = params.id;
+    const { id: subjectId } = await params;
 
     // Members can only update their own profile
     if (session.user.id !== subjectId) {
