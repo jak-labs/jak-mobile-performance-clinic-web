@@ -280,10 +280,10 @@ function RoomContent({
           isPanelOpen ? "md:w-[60%] w-full" : "w-full"
         }`}
       >
-        {/* Mobile: Stack vertically, Desktop: Side by side */}
-        <div className="h-full min-h-0 flex flex-col md:flex-row gap-0 p-0">
-          {/* Coach video - large main view */}
-          <div className="flex-1 min-h-0 relative overflow-hidden bg-black md:border-r-2 border-primary">
+        {/* Main video area - Clean, minimal layout */}
+        <div className="h-full min-h-0 flex flex-col md:flex-row gap-0 p-0 overflow-y-auto md:overflow-hidden">
+          {/* Coach video - large main view with clean styling */}
+          <div className="flex-1 min-h-0 relative overflow-hidden bg-black md:border-r border-border/50">
             {coachParticipant ? (() => {
               const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
               return (
@@ -301,7 +301,7 @@ function RoomContent({
                       </div>
                     </div>
                   )}
-                  <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 md:px-3 py-1 md:py-1.5 rounded z-10">
+                  <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-3 md:px-4 py-2 md:py-2.5 rounded-lg border border-white/10 z-10 shadow-lg">
                     {(() => {
                       const info = participantInfo[coachParticipant.identity]
                       const firstName = info?.firstName || ''
@@ -310,18 +310,18 @@ function RoomContent({
                       const isLocal = coachParticipant.identity === localParticipant.identity
                       
                       return (
-                        <div className="flex flex-col">
+                        <div className="flex flex-col gap-0.5">
                           {(firstName || lastName) ? (
                             <>
-                              <p className="text-xs md:text-sm font-semibold text-white">
+                              <p className="text-sm md:text-base font-semibold text-white">
                                 {firstName} {lastName}
                               </p>
-                              <p className="text-[10px] md:text-xs text-white/80">
+                              <p className="text-xs md:text-sm text-white/70">
                                 {label} {isLocal ? "• You" : ""}
                               </p>
                             </>
                           ) : (
-                            <p className="text-xs md:text-sm font-medium text-white">
+                            <p className="text-sm md:text-base font-medium text-white">
                               {coachParticipant.name || coachParticipant.identity} {isLocal ? "(You - Coach)" : "(Coach)"}
                             </p>
                           )}
@@ -355,18 +355,9 @@ function RoomContent({
             )}
           </div>
 
-          {/* Controls - Mobile: Above participants, Desktop: Absolute bottom */}
-          <div className="md:hidden flex items-center justify-center gap-2 bg-background/95 backdrop-blur-sm px-3 py-2 border-t z-50 flex-shrink-0" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)' }}>
-            <TrackToggle source={Track.Source.Microphone} className="rounded-full h-10 w-10 flex-shrink-0" />
-            <TrackToggle source={Track.Source.Camera} className="rounded-full h-10 w-10 flex-shrink-0" />
-            <DisconnectButton className="rounded-full h-10 w-10 bg-destructive hover:bg-destructive/90 flex-shrink-0">
-              <PhoneOff className="h-4 w-4" />
-            </DisconnectButton>
-          </div>
-
-          {/* Other participants - Mobile: Horizontal scroll, Desktop: Vertical stack */}
+          {/* Other participants - Clean carousel layout */}
           {otherParticipants.length > 0 && (
-            <div className="md:w-64 w-full flex md:flex-col flex-row gap-2 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-2 md:h-auto h-24 sm:h-32 flex-shrink-0" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)' }}>
+            <div className="md:w-72 w-full flex md:flex-col flex-row gap-3 overflow-x-auto md:overflow-y-auto overflow-y-hidden p-3 md:h-auto h-28 sm:h-36 flex-shrink-0 scrollbar-hide" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' }}>
               {otherParticipants.map((participant) => {
                 const isLocal = participant.identity === localParticipant.identity
                 const audioPublications = [...participant.audioTrackPublications.values()]
@@ -376,7 +367,7 @@ function RoomContent({
                 return (
                   <div
                     key={participant.identity}
-                    className="relative rounded-lg overflow-hidden bg-black border border-border flex-shrink-0 md:h-[180px] h-full w-48 md:w-auto"
+                    className="relative rounded-xl overflow-hidden bg-black border border-white/10 flex-shrink-0 md:h-[200px] h-full w-56 md:w-auto shadow-lg hover:border-white/20 transition-colors"
                   >
                     <ParticipantContext.Provider value={participant}>
                       {(() => {
@@ -396,7 +387,7 @@ function RoomContent({
                         )
                       })()}
                     </ParticipantContext.Provider>
-                    <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded z-10">
+                    <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-white/10 z-10 shadow-lg">
                       {(() => {
                         const info = participantInfo[participant.identity]
                         const firstName = info?.firstName || ''
@@ -404,16 +395,16 @@ function RoomContent({
                         const label = info?.label || 'Participant'
                         
                         return (firstName || lastName) ? (
-                          <div className="flex flex-col">
-                            <p className="text-xs font-semibold text-white truncate max-w-[200px]">
+                          <div className="flex flex-col gap-0.5">
+                            <p className="text-xs font-semibold text-white truncate max-w-[180px]">
                               {firstName} {lastName}
                             </p>
-                            <p className="text-[10px] text-white/80 truncate max-w-[200px]">
+                            <p className="text-[10px] text-white/70 truncate max-w-[180px]">
                               {label} {isLocal ? "• You" : ""}
                             </p>
                           </div>
                         ) : (
-                          <p className="text-xs font-medium text-white truncate max-w-[200px]">
+                          <p className="text-xs font-medium text-white truncate max-w-[180px]">
                             {participant.name || participant.identity} {isLocal ? "(You)" : ""}
                           </p>
                         )
@@ -431,23 +422,24 @@ function RoomContent({
           )}
         </div>
 
-        {/* Controls - Desktop/Tablet only (mobile controls are in flex layout above) */}
-        <div className="hidden md:flex absolute bottom-8 left-1/2 -translate-x-1/2 items-center gap-3 bg-background/95 backdrop-blur-sm px-6 py-3 rounded-full border shadow-lg z-50" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)', marginBottom: 'max(1rem, env(safe-area-inset-bottom, 0) + 0.5rem)' }}>
-          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-12 w-12 flex-shrink-0" />
-          <TrackToggle source={Track.Source.Camera} className="rounded-full h-12 w-12 flex-shrink-0" />
-          <DisconnectButton className="rounded-full h-12 w-12 bg-destructive hover:bg-destructive/90 flex-shrink-0">
-            <PhoneOff className="h-5 w-5" />
+        {/* Controls - Clean, minimal design inspired by LiveKit Agents */}
+        <div className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 bg-black/80 backdrop-blur-xl px-4 md:px-8 py-3 md:py-4 rounded-2xl border border-white/10 shadow-2xl z-50 max-w-[calc(100vw-2rem)] md:max-w-none" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))', marginBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' }}>
+          <TrackToggle source={Track.Source.Microphone} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/10 hover:bg-white/20 border border-white/20 transition-all" />
+          <TrackToggle source={Track.Source.Camera} className="rounded-full h-11 w-11 md:h-14 md:w-14 flex-shrink-0 bg-white/10 hover:bg-white/20 border border-white/20 transition-all" />
+          <DisconnectButton className="rounded-full h-11 w-11 md:h-14 md:w-14 bg-red-500/90 hover:bg-red-600 border border-red-400/50 flex-shrink-0 transition-all shadow-lg">
+            <PhoneOff className="h-5 w-5 md:h-6 md:w-6" />
           </DisconnectButton>
         </div>
 
-        <div className="absolute top-2 md:top-4 left-2 md:left-4 bg-background/95 backdrop-blur-sm px-2 md:px-4 py-1 md:py-2 rounded-lg border z-10">
-          <p className="text-[10px] md:text-xs text-muted-foreground">Session Duration</p>
-          <p className="text-xs md:text-sm font-mono font-semibold">{sessionDuration}</p>
+        {/* Session info - Clean, minimal badges */}
+        <div className="absolute top-4 md:top-6 left-4 md:left-6 bg-black/60 backdrop-blur-md px-3 md:px-4 py-2 md:py-2.5 rounded-xl border border-white/10 z-10 shadow-lg">
+          <p className="text-[10px] md:text-xs text-white/60 uppercase tracking-wider mb-1">Session Duration</p>
+          <p className="text-sm md:text-base font-mono font-semibold text-white">{sessionDuration}</p>
         </div>
 
-        <div className="absolute top-2 md:top-4 right-2 md:right-4 flex items-center gap-1 md:gap-2 bg-background/95 backdrop-blur-sm px-2 md:px-3 py-1 md:py-2 rounded-lg border z-10">
-          <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-[10px] md:text-xs font-medium">Connected</span>
+        <div className="absolute top-4 md:top-6 right-4 md:right-6 flex items-center gap-2 md:gap-2.5 bg-black/60 backdrop-blur-md px-3 md:px-4 py-2 md:py-2.5 rounded-xl border border-white/10 z-10 shadow-lg">
+          <div className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-green-400 animate-pulse shadow-lg shadow-green-400/50" />
+          <span className="text-xs md:text-sm font-medium text-white">Connected</span>
         </div>
       </div>
 
