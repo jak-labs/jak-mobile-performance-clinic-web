@@ -5,3 +5,7 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Note: If secret scanning fails, you may need to disable it in Netlify Dashboard:
+# Site settings → Build & deploy → Environment → Secret scanning
+# Or clear build cache and redeploy
+

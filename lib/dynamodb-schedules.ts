@@ -15,8 +15,8 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 
-const SCHEDULES_TABLE = process.env.DYNAMODB_SCHEDULES_TABLE || "jak-coach-sessions-schedule";
-const SUBJECTS_TABLE = process.env.DYNAMODB_SUBJECTS_TABLE || "jak-subjects";
+const SCHEDULES_TABLE = "jak-coach-sessions-schedule";
+const SUBJECTS_TABLE = "jak-subjects";
 
 export interface ScheduleSession {
   user_id: string; // Partition Key (coach ID)

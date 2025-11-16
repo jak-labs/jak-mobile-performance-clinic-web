@@ -233,7 +233,7 @@ Join the session at: ${sessionLink}
 This session is scheduled for ${formattedDate} at ${formattedTime}. You can access the session using the link above when it's time.
           `;
 
-          const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@jaklabs.com';
+          const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@api.jak-labs.com';
 
           await sesClient.send(
             new SendEmailCommand({

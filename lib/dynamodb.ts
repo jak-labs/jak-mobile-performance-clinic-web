@@ -4,7 +4,7 @@ import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } from "@
 // Initialize DynamoDB client
 // Use JAK_ prefixed vars for Netlify (AWS_* are reserved), fallback to AWS_* for local dev
 const client = new DynamoDBClient({
-  region: process.env.JAK_AWS_REGION || process.env.AWS_REGION || "us-east-2",
+  region: process.env.JAK_AWS_REGION || process.env.AWS_REGION || "us-east-2", // Hardcoded default: us-east-2
   credentials: (process.env.JAK_AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID) && (process.env.JAK_AWS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY)
     ? {
         accessKeyId: process.env.JAK_AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID,
@@ -15,7 +15,7 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 
-const USERS_TABLE = process.env.DYNAMODB_USERS_TABLE || "jak-users";
+const USERS_TABLE = "jak-users";
 
 export interface UserProfile {
   userId: string; // Cognito user sub

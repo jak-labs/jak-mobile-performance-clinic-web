@@ -56,11 +56,12 @@ JAK_AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
 
 ### DynamoDB Tables
 
-```env
-DYNAMODB_USERS_TABLE=jak-users
-DYNAMODB_SUBJECTS_TABLE=jak-subjects
-DYNAMODB_SCHEDULES_TABLE=jak-coach-sessions-schedule
-```
+**Note:** Table names are now hardcoded in the application:
+- `jak-users`
+- `jak-subjects`
+- `jak-coach-sessions-schedule`
+
+No environment variables needed for table names.
 
 ### AWS SES (Email Sending)
 
@@ -101,10 +102,7 @@ JAK_AWS_REGION=us-east-2
 JAK_AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 JAK_AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
-# DynamoDB
-DYNAMODB_USERS_TABLE=jak-users
-DYNAMODB_SUBJECTS_TABLE=jak-subjects
-DYNAMODB_SCHEDULES_TABLE=jak-coach-sessions-schedule
+# Note: DynamoDB table names are hardcoded (jak-users, jak-subjects, jak-coach-sessions-schedule)
 
 # SES
 SES_FROM_EMAIL=noreply@api.jak-labs.com

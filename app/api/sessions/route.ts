@@ -30,7 +30,7 @@ const dynamoClient = new DynamoDBClient({
 });
 
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
-const SCHEDULES_TABLE = process.env.DYNAMODB_SCHEDULES_TABLE || 'jak-coach-sessions-schedule';
+const SCHEDULES_TABLE = 'jak-coach-sessions-schedule';
 
 /**
  * Get sessions for a member (where they are in subject_id or subject_ids)

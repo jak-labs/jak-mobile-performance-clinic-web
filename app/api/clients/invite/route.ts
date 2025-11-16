@@ -81,8 +81,8 @@ export async function POST(req: NextRequest) {
       // Continue even if DB save fails - we'll still send the invite
     }
 
-    // Send invite email
-    const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@jaklabs.com';
+        // Send invite email
+        const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@api.jak-labs.com';
     const emailSubject = 'You\'ve been invited to join JAK Labs';
     
     const emailBody = `

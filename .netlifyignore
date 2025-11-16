@@ -1,8 +1,11 @@
 # Netlify ignore file - excludes files from deployment and secret scanning
 
-# Build output and cache
+# Build output and cache (explicit cache paths)
 .netlify/
+.netlify/.next/
+.netlify/.next/cache/
 .next/
+.next/cache/
 out/
 dist/
 build/

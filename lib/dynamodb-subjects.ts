@@ -15,7 +15,7 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 
-const SUBJECTS_TABLE = process.env.DYNAMODB_SUBJECTS_TABLE || "jak-subjects";
+const SUBJECTS_TABLE = "jak-subjects";
 
 export interface SubjectProfile {
   owner_id: string; // Partition key - Coach/user ID who owns this subject
@@ -40,9 +40,6 @@ export interface SubjectProfile {
 export async function saveSubjectProfile(
   profile: Omit<SubjectProfile, "created_at" | "updated_at">
 ): Promise<void> {
-  if (!SUBJECTS_TABLE) {
-    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
-  }
 
   const timestamp = new Date().toISOString();
   const command = new PutCommand({
@@ -72,9 +69,6 @@ export async function saveSubjectProfile(
  * Get subject by invite token
  */
 export async function getSubjectByInviteToken(inviteToken: string): Promise<SubjectProfile | null> {
-  if (!SUBJECTS_TABLE) {
-    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
-  }
 
   try {
     const result = await docClient.send(
@@ -100,9 +94,6 @@ export async function getSubjectByInviteToken(inviteToken: string): Promise<Subj
  * Consider using Query with owner_id if you have it for better performance
  */
 export async function getSubjectProfile(subjectId: string, ownerId?: string): Promise<SubjectProfile | null> {
-  if (!SUBJECTS_TABLE) {
-    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
-  }
 
   try {
     // If owner_id is provided, we can use Query (more efficient)
@@ -146,9 +137,6 @@ export async function updateSubjectProfile(
   updates: Partial<Omit<SubjectProfile, "subject_id" | "created_at">>,
   ownerId?: string
 ): Promise<void> {
-  if (!SUBJECTS_TABLE) {
-    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
-  }
 
   // Get existing profile to get owner_id if not provided
   let existingProfile: SubjectProfile | null = null;
@@ -214,9 +202,6 @@ export async function migratePendingSubjectToActive(
   inviteToken: string,
   realSubjectId: string
 ): Promise<void> {
-  if (!SUBJECTS_TABLE) {
-    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
-  }
 
   // Get the pending subject
   const pendingSubject = await getSubjectByInviteToken(inviteToken);
@@ -258,9 +243,6 @@ export async function migratePendingSubjectToActive(
  * Table structure: owner_id (partition key) + subject_id (sort key)
  */
 export async function getSubjectsByCoach(ownerId: string): Promise<SubjectProfile[]> {
-  if (!SUBJECTS_TABLE) {
-    throw new Error("DYNAMODB_SUBJECTS_TABLE environment variable is not set.");
-  }
 
   try {
     // Query by owner_id (partition key) to get all subjects for this coach
