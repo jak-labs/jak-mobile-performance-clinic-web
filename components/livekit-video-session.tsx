@@ -99,7 +99,6 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
   const handleAddNote = (participantId: string) => {
     const note = participantNotes[participantId]
     if (note?.trim()) {
-      console.log(`Adding note for participant ${participantId}:`, note)
       setParticipantNotes({ ...participantNotes, [participantId]: "" })
     }
   }
@@ -286,9 +285,13 @@ function RoomContent({
       const infoPromises = allParticipants
         .filter(p => p.identity && p.identity.trim() !== '') // Filter out empty identities first
         .map(async (p) => {
-          // Skip if we already have info for this participant or already fetched
-          if (participantInfo[p.identity] || fetchedParticipantsRef.current.has(p.identity)) {
-            console.log(`Skipping ${p.identity}, already have info or already fetched`)
+          // Skip if we already have complete info for this participant
+          if (participantInfo[p.identity] && participantInfo[p.identity].fullName) {
+            return null
+          }
+          
+          // Skip if already being fetched
+          if (fetchedParticipantsRef.current.has(p.identity)) {
             return null
           }
           
@@ -302,19 +305,22 @@ function RoomContent({
             ? `/api/participants/${encodeURIComponent(p.identity)}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}`
             : `/api/participants/${encodeURIComponent(p.identity)}`
           
-          console.log(`Fetching participant info for: ${p.identity}`, url)
-          
           const response = await fetch(url)
           if (response.ok) {
             const data = await response.json()
-            console.log(`Participant info received for ${p.identity}:`, data)
             
             // Make sure we have valid name data
             const firstName = data.firstName || ''
             const lastName = data.lastName || ''
-            const fullName = data.fullName || (firstName && lastName ? `${firstName} ${lastName}`.trim() : '')
-            
-            console.log(`Parsed name data for ${p.identity}:`, { firstName, lastName, fullName, role: data.role })
+            // Prioritize fullName from API, construct if missing
+            let fullName = data.fullName || ''
+            if (!fullName && firstName && lastName) {
+              fullName = `${firstName} ${lastName}`.trim()
+            } else if (!fullName && firstName) {
+              fullName = firstName.trim()
+            } else if (!fullName && lastName) {
+              fullName = lastName.trim()
+            }
             
             return {
               identity: p.identity,
@@ -342,31 +348,20 @@ function RoomContent({
       let hasUpdates = false
       results.forEach((result) => {
         if (result && result.info) {
-          console.log(`Setting participant info for ${result.identity}:`, result.info)
           newInfo[result.identity] = result.info
           hasUpdates = true
-        } else if (result) {
-          console.warn(`Result for ${result.identity} has no info:`, result)
         }
       })
 
       if (hasUpdates) {
-        console.log('Updating participantInfo state with:', newInfo)
         setParticipantInfo(newInfo)
-      } else {
-        console.log('No participant info updates to apply. Current participantInfo:', participantInfo)
-        console.log('Results from API:', results.filter(r => r !== null))
-        console.log('All participants that were processed:', allParticipants.filter(p => p.identity && p.identity.trim() !== ''))
       }
     }
 
     if (participants.length > 0) {
-      console.log('Calling fetchParticipantInfo, participants:', participants.map(p => p.identity))
-      fetchParticipantInfo().catch((error) => {
-        console.error('Error in fetchParticipantInfo:', error)
+      fetchParticipantInfo().catch(() => {
+        // Silently fail
       })
-    } else {
-      console.log('No participants yet, skipping fetch')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [participants.length, localParticipant.identity, remoteParticipants.length, sessionOwnerId])
@@ -389,11 +384,6 @@ function RoomContent({
   // Include ALL participants, not just remote ones
   const otherParticipants = participants.filter((p) => p.identity !== coachParticipant?.identity)
   
-  // Debug logging
-  console.log('Participants:', participants.length, participants.map(p => p.identity))
-  console.log('Coach:', coachParticipant?.identity)
-  console.log('Other participants:', otherParticipants.length, otherParticipants.map(p => p.identity))
-  
   // Helper to get track for a participant
   const getTrackForParticipant = (participantIdentity: string) => {
     return tracks.find(
@@ -403,50 +393,35 @@ function RoomContent({
 
   // Helper to format participant name with role
   const formatParticipantName = (info: typeof participantInfo[string] | undefined, participant: typeof participants[0]) => {
-    console.log(`formatParticipantName called for ${participant.identity}:`, { 
-      hasInfo: !!info, 
-      info, 
-      participantIdentity: participant.identity,
-      allParticipantInfoKeys: Object.keys(participantInfo)
-    })
-    
     // If we have info from the API, use it
     if (info) {
-      // Build name from firstName and lastName (from jak-users f_name/l_name or jak-subjects f_name/l_name)
-      const firstName = info.firstName || ''
-      const lastName = info.lastName || ''
+      // Prioritize fullName from API
+      let fullName = info.fullName || ''
       
-      // Construct full name from firstName and lastName
-      let fullName = ''
-      if (firstName && lastName) {
-        fullName = `${firstName} ${lastName}`.trim()
-      } else if (info.fullName && !info.fullName.includes('@') && info.fullName.trim()) {
-        // Use fullName from API if it's not an email
-        fullName = info.fullName.trim()
-      } else if (firstName) {
-        fullName = firstName.trim()
-      } else if (lastName) {
-        fullName = lastName.trim()
+      // If no fullName, construct from firstName and lastName
+      if (!fullName) {
+        const firstName = info.firstName || ''
+        const lastName = info.lastName || ''
+        if (firstName && lastName) {
+          fullName = `${firstName} ${lastName}`.trim()
+        } else if (firstName) {
+          fullName = firstName.trim()
+        } else if (lastName) {
+          fullName = lastName.trim()
+        }
+      } else {
+        fullName = fullName.trim()
       }
 
-      console.log(`Name construction for ${participant.identity}:`, { firstName, lastName, fullNameFromInfo: info.fullName, constructedFullName: fullName })
-
-      // Only return formatted name if we have actual name data (not email, not empty)
-      if (fullName && fullName.trim() && !fullName.includes('@')) {
+      // Return formatted name if we have valid data (not email, not empty)
+      if (fullName && fullName.length > 0 && !fullName.includes('@')) {
         // Determine role label
         const role = info.role === 'coach' ? 'Coach' : 'Participant'
-        const formattedName = `${fullName} (${role})`
-        console.log(`Returning formatted name for ${participant.identity}:`, formattedName)
-        return formattedName
-      } else {
-        console.log(`No valid name found for ${participant.identity}, fullName: "${fullName}", info:`, info)
+        return `${fullName} (${role})`
       }
-    } else {
-      console.log(`No info available yet for participant ${participant.identity}, participantInfo keys:`, Object.keys(participantInfo))
     }
 
     // Fallback: show "Loading..." while we wait for API response
-    // Don't show user_id or email
     return 'Loading...'
   }
 
@@ -494,10 +469,35 @@ function RoomContent({
   const renderLayout = () => {
     switch (layoutMode) {
       case 'grid':
-        // Grid layout: all participants in a grid
+        // Grid layout: all participants in a responsive grid
+        // Calculate grid columns based on participant count
+        const participantCount = participants.length
+        let gridColsClass = 'grid-cols-2' // Default for 2 participants (side by side)
+        let useFullHeight = false
+        
+        if (participantCount === 1) {
+          gridColsClass = 'grid-cols-1'
+          useFullHeight = true
+        } else if (participantCount === 2) {
+          gridColsClass = 'grid-cols-2' // Side by side - full height
+          useFullHeight = true
+        } else if (participantCount <= 4) {
+          gridColsClass = 'grid-cols-2' // 2x2 grid
+        } else if (participantCount <= 9) {
+          gridColsClass = 'grid-cols-3' // 3x3 grid
+        } else if (participantCount <= 16) {
+          gridColsClass = 'grid-cols-4' // 4x4 grid
+        } else {
+          gridColsClass = 'grid-cols-5' // 5x5+ grid for more participants
+        }
+        
         return (
-          <div className="h-full w-full p-2 md:p-4 grid grid-cols-2 gap-2 md:gap-4">
-            {participants.map((participant) => renderParticipantTile(participant, false))}
+          <div className={`h-full w-full p-2 md:p-4 grid ${gridColsClass} gap-2 md:gap-4 ${useFullHeight ? '' : 'overflow-y-auto'}`}>
+            {participants.map((participant) => (
+              <div key={participant.identity} className={useFullHeight ? 'h-full' : ''}>
+                {renderParticipantTile(participant, useFullHeight)}
+              </div>
+            ))}
           </div>
         )
 
@@ -635,15 +635,15 @@ function RoomContent({
             ) : (
               <>
                 <button
-                  onClick={() => setLayoutMode('one-on-one')}
+                  onClick={() => setLayoutMode('grid')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    layoutMode === 'one-on-one' 
+                    layoutMode === 'grid' 
                       ? 'bg-white text-black' 
                       : 'bg-transparent text-white hover:bg-white/20'
                   }`}
-                  title="1:1 Layout"
+                  title="Grid Layout"
                 >
-                  <User className="h-4 w-4" />
+                  <LayoutGrid className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => setLayoutMode('default')}

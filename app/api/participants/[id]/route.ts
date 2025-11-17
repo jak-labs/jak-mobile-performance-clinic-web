@@ -40,11 +40,20 @@ export async function GET(
     // Try jak-users table first (coaches)
     const coachProfile = await getUserProfile(participantId);
     if (coachProfile) {
+      // getUserProfile maps full_name (snake_case) from DB to fullName (camelCase)
+      // Prioritize fullName, then construct from f_name/l_name
       const firstName = coachProfile.f_name || '';
       const lastName = coachProfile.l_name || '';
-      const fullName = (firstName && lastName) 
-        ? `${firstName} ${lastName}`.trim()
-        : coachProfile.full_name || '';
+      let fullName = coachProfile.fullName || ''; // Already mapped from full_name (snake_case) in DB
+      
+      // If no fullName, construct from f_name and l_name
+      if (!fullName && firstName && lastName) {
+        fullName = `${firstName} ${lastName}`.trim();
+      } else if (!fullName && firstName) {
+        fullName = firstName.trim();
+      } else if (!fullName && lastName) {
+        fullName = lastName.trim();
+      }
       
       return NextResponse.json({
         userId: participantId,
@@ -60,11 +69,20 @@ export async function GET(
     // Try jak-subjects table (members)
     const subjectProfile = await getSubjectProfile(participantId);
     if (subjectProfile) {
+      // getSubjectProfile returns raw DynamoDB item with snake_case fields
+      // Prioritize full_name (snake_case) from database, then construct from f_name/l_name
       const firstName = subjectProfile.f_name || '';
       const lastName = subjectProfile.l_name || '';
-      const fullName = (firstName && lastName)
-        ? `${firstName} ${lastName}`.trim()
-        : subjectProfile.full_name || '';
+      let fullName = subjectProfile.full_name || ''; // full_name is snake_case in DB
+      
+      // If no full_name, construct from f_name and l_name
+      if (!fullName && firstName && lastName) {
+        fullName = `${firstName} ${lastName}`.trim();
+      } else if (!fullName && firstName) {
+        fullName = firstName.trim();
+      } else if (!fullName && lastName) {
+        fullName = lastName.trim();
+      }
       
       return NextResponse.json({
         userId: participantId,
