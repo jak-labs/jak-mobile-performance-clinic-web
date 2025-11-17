@@ -37,7 +37,7 @@ export async function GET(
     // Determine if this participant is the coach (session owner)
     const isSessionOwner = sessionOwnerId && participantId === sessionOwnerId;
     
-    // Try jak-users table first (coaches)
+    // Try jak-users table first (coaches) - query by user_id
     const coachProfile = await getUserProfile(participantId);
     if (coachProfile) {
       // getUserProfile maps full_name (snake_case) from DB to fullName (camelCase)
@@ -60,13 +60,13 @@ export async function GET(
         email: coachProfile.email,
         firstName: firstName,
         lastName: lastName,
-        fullName: fullName,
+        fullName: fullName, // Use full_name from jak-users table
         role: isSessionOwner ? 'coach' : 'participant',
         label: isSessionOwner ? 'Coach' : 'Participant',
       });
     }
     
-    // Try jak-subjects table (members)
+    // Try jak-subjects table (members) - query by subject_id
     const subjectProfile = await getSubjectProfile(participantId);
     if (subjectProfile) {
       // getSubjectProfile returns raw DynamoDB item with snake_case fields
@@ -89,7 +89,7 @@ export async function GET(
         email: subjectProfile.email,
         firstName: firstName,
         lastName: lastName,
-        fullName: fullName,
+        fullName: fullName, // Use full_name from jak-subjects table
         role: 'member',
         label: 'Participant',
       });

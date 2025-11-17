@@ -285,13 +285,9 @@ function RoomContent({
       const infoPromises = allParticipants
         .filter(p => p.identity && p.identity.trim() !== '') // Filter out empty identities first
         .map(async (p) => {
-          // Skip if we already have complete info for this participant
-          if (participantInfo[p.identity] && participantInfo[p.identity].fullName) {
-            return null
-          }
-          
-          // Skip if already being fetched
-          if (fetchedParticipantsRef.current.has(p.identity)) {
+          // Skip if we already have info for this participant or already fetched
+          if (participantInfo[p.identity] || fetchedParticipantsRef.current.has(p.identity)) {
+            console.log(`Skipping ${p.identity}, already have info or already fetched`)
             return null
           }
           
@@ -299,7 +295,6 @@ function RoomContent({
           fetchedParticipantsRef.current.add(p.identity)
 
           try {
-          
           // Pass sessionOwnerId as query param to correctly identify the coach
           const url = sessionOwnerId 
             ? `/api/participants/${encodeURIComponent(p.identity)}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}`
@@ -312,15 +307,9 @@ function RoomContent({
             // Make sure we have valid name data
             const firstName = data.firstName || ''
             const lastName = data.lastName || ''
-            // Prioritize fullName from API, construct if missing
-            let fullName = data.fullName || ''
-            if (!fullName && firstName && lastName) {
-              fullName = `${firstName} ${lastName}`.trim()
-            } else if (!fullName && firstName) {
-              fullName = firstName.trim()
-            } else if (!fullName && lastName) {
-              fullName = lastName.trim()
-            }
+            const fullName = data.fullName || (firstName && lastName ? `${firstName} ${lastName}`.trim() : '')
+            
+            console.log(`Parsed name data for ${p.identity}:`, { firstName, lastName, fullName, role: data.role })
             
             return {
               identity: p.identity,
@@ -332,12 +321,9 @@ function RoomContent({
                 role: data.role || 'unknown',
               },
             }
-          } else {
-            const errorText = await response.text()
-            console.error(`Failed to fetch participant info for ${p.identity}:`, response.status, errorText.substring(0, 200))
           }
         } catch (error) {
-          console.error(`Error fetching info for participant ${p.identity}:`, error)
+          // Silently fail - will show "Loading..." as fallback
         }
         return null
       })
@@ -384,6 +370,11 @@ function RoomContent({
   // Include ALL participants, not just remote ones
   const otherParticipants = participants.filter((p) => p.identity !== coachParticipant?.identity)
   
+  // Debug logging
+  console.log('Participants:', participants.length, participants.map(p => p.identity))
+  console.log('Coach:', coachParticipant?.identity)
+  console.log('Other participants:', otherParticipants.length, otherParticipants.map(p => p.identity))
+  
   // Helper to get track for a participant
   const getTrackForParticipant = (participantIdentity: string) => {
     return tracks.find(
@@ -395,26 +386,27 @@ function RoomContent({
   const formatParticipantName = (info: typeof participantInfo[string] | undefined, participant: typeof participants[0]) => {
     // If we have info from the API, use it
     if (info) {
-      // Prioritize fullName from API
-      let fullName = info.fullName || ''
+      // Build name from firstName and lastName (from jak-users f_name/l_name or jak-subjects f_name/l_name)
+      const firstName = info.firstName || ''
+      const lastName = info.lastName || ''
       
-      // If no fullName, construct from firstName and lastName
-      if (!fullName) {
-        const firstName = info.firstName || ''
-        const lastName = info.lastName || ''
-        if (firstName && lastName) {
-          fullName = `${firstName} ${lastName}`.trim()
-        } else if (firstName) {
-          fullName = firstName.trim()
-        } else if (lastName) {
-          fullName = lastName.trim()
-        }
-      } else {
-        fullName = fullName.trim()
+      // Construct full name from firstName and lastName
+      let fullName = ''
+      if (firstName && lastName) {
+        fullName = `${firstName} ${lastName}`.trim()
+      } else if (info.fullName && !info.fullName.includes('@') && info.fullName.trim()) {
+        // Use fullName from API if it's not an email
+        fullName = info.fullName.trim()
+      } else if (firstName) {
+        fullName = firstName.trim()
+      } else if (lastName) {
+        fullName = lastName.trim()
       }
 
-      // Return formatted name if we have valid data (not email, not empty)
-      if (fullName && fullName.length > 0 && !fullName.includes('@')) {
+      console.log(`Name construction for ${participant.identity}:`, { firstName, lastName, fullNameFromInfo: info.fullName, constructedFullName: fullName })
+
+      // Only return formatted name if we have actual name data (not email, not empty)
+      if (fullName && fullName.trim() && !fullName.includes('@')) {
         // Determine role label
         const role = info.role === 'coach' ? 'Coach' : 'Participant'
         return `${fullName} (${role})`
@@ -516,7 +508,7 @@ function RoomContent({
         return (
           <div className="h-full w-full flex flex-col md:flex-row">
             {/* Main spotlight video */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0" style={{ flex: '0 0 95%' }}>
               {renderParticipantTile(spotlightParticipant, true)}
             </div>
             {/* Small participant boxes (only if more than 1 participant total) */}
@@ -537,12 +529,10 @@ function RoomContent({
         const totalParticipantsOneOnOne = participants.length
         return (
           <div className="h-full w-full flex flex-col md:flex-row">
-            {/* Athlete/Member - large */}
-            {athleteParticipant && (
-              <div className="flex-1 min-w-0 h-full">
-                {renderParticipantTile(athleteParticipant, true)}
-              </div>
-            )}
+            {/* Athlete - large */}
+            <div className="flex-1 min-w-0">
+              {renderParticipantTile(athlete, true)}
+            </div>
             {/* Coach - small (only if more than 1 participant total) */}
             {coachParticipant && totalParticipantsOneOnOne > 1 && (
               <div className="md:w-40 md:flex-col md:gap-2 md:p-2 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
@@ -561,7 +551,7 @@ function RoomContent({
           <div className="h-full w-full flex flex-col md:flex-row">
             {/* Coach - large */}
             {coachParticipant && (
-              <div className="flex-1 min-w-0 h-full">
+              <div className="flex-1 min-w-0">
                 {renderParticipantTile(coachParticipant, true)}
               </div>
             )}
