@@ -430,31 +430,61 @@ function RoomContent({
       ? firstName.charAt(0).toUpperCase()
       : (info?.fullName || participant.name || participant.identity).charAt(0).toUpperCase()
 
-    return (
-      <div
-        key={participant.identity}
-        className={`relative bg-black rounded-lg overflow-hidden ${
-          isLarge ? 'w-full h-full' : 'aspect-video'
-        }`}
-      >
-        {trackRef ? (
-          <TrackRefContext.Provider value={trackRef}>
-            <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
-          </TrackRefContext.Provider>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gray-900">
-            <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
-              <span className="text-2xl font-medium text-white">
-                {firstLetter}
-              </span>
+    if (isLarge) {
+      // Large boxes: name overlay on video (existing behavior)
+      return (
+        <div
+          key={participant.identity}
+          className="relative bg-black rounded-lg overflow-hidden w-full h-full"
+        >
+          {trackRef ? (
+            <TrackRefContext.Provider value={trackRef}>
+              <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
+            </TrackRefContext.Provider>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gray-900">
+              <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
+                <span className="text-2xl font-medium text-white">
+                  {firstLetter}
+                </span>
+              </div>
             </div>
+          )}
+          <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-xs md:text-sm">
+            <p className="font-medium text-white">{displayName}</p>
           </div>
-        )}
-        <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-xs md:text-sm">
-          <p className="font-medium text-white">{displayName}</p>
         </div>
-      </div>
-    )
+      )
+    } else {
+      // Small boxes: card structure with video on top, name below
+      return (
+        <div
+          key={participant.identity}
+          className="flex flex-col bg-black rounded-lg overflow-hidden"
+        >
+          {/* Video section */}
+          <div className="relative aspect-video w-full">
+            {trackRef ? (
+              <TrackRefContext.Provider value={trackRef}>
+                <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
+              </TrackRefContext.Provider>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gray-900">
+                <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
+                  <span className="text-lg font-medium text-white">
+                    {firstLetter}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Name section */}
+          <div className="bg-black/90 px-2 py-1.5">
+            <p className="font-medium text-white text-xs md:text-sm text-center truncate">{displayName}</p>
+          </div>
+        </div>
+      )
+    }
   }
 
   // Render layout based on layoutMode
@@ -546,25 +576,48 @@ function RoomContent({
 
       case 'default':
       default:
-        // Default layout: coach big, others small on the right
+        // Default layout: if coach viewing, show participants big and coach small; otherwise coach big
         // If only one participant total, don't show small boxes (no duplicates)
         const totalParticipants = participants.length
-        return (
-          <div className="h-full w-full flex flex-col md:flex-row">
-            {/* Coach - large */}
-            {coachParticipant && (
-              <div className="flex-1 min-w-0">
-                {renderParticipantTile(coachParticipant, true)}
-              </div>
-            )}
-            {/* Other participants - small boxes on the right (only if more than 1 participant total) */}
-            {otherParticipants.length > 0 && totalParticipants > 1 && (
-              <div className="md:w-40 md:flex-col md:gap-2 md:p-2 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
-                {otherParticipants.map((participant) => renderParticipantTile(participant, false))}
-              </div>
-            )}
-          </div>
-        )
+        const isCoachViewing = isCoach && coachParticipant
+        
+        if (isCoachViewing) {
+          // Coach viewing: participants and coach same size, side by side, centered
+          return (
+            <div className="h-full w-full flex items-center justify-center gap-2 md:gap-4 p-2 md:p-4">
+              {/* Participants - same size as coach */}
+              {otherParticipants.length > 0 && (
+                <div className="w-full md:w-1/2 max-w-md">
+                  {renderParticipantTile(otherParticipants[0], false)}
+                </div>
+              )}
+              {/* Coach - same size as participant (only if more than 1 participant total) */}
+              {coachParticipant && totalParticipants > 1 && (
+                <div className="w-full md:w-1/2 max-w-md">
+                  {renderParticipantTile(coachParticipant, false)}
+                </div>
+              )}
+            </div>
+          )
+        } else {
+          // Non-coach viewing: coach and participants same size, side by side, centered
+          return (
+            <div className="h-full w-full flex items-center justify-center gap-2 md:gap-4 p-2 md:p-4">
+              {/* Coach - same size as participants */}
+              {coachParticipant && (
+                <div className="w-full md:w-1/2 max-w-md">
+                  {renderParticipantTile(coachParticipant, false)}
+                </div>
+              )}
+              {/* Other participants - same size as coach (only if more than 1 participant total) */}
+              {otherParticipants.length > 0 && totalParticipants > 1 && (
+                <div className="w-full md:w-1/2 max-w-md">
+                  {renderParticipantTile(otherParticipants[0], false)}
+                </div>
+              )}
+            </div>
+          )
+        }
     }
   }
 
