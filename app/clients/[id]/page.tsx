@@ -6,11 +6,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Calendar, Clock, TrendingUp, Activity, Target, Video, Mail, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, Calendar, Clock, TrendingUp, Activity, Target, Mail, Plus, Trash2 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 interface Subject {
   id: string
@@ -38,130 +38,6 @@ interface Note {
   text: string
   timestamp: string
 }
-
-const subjects: Subject[] = [
-  {
-    id: "1",
-    name: "Sarah Johnson",
-    age: 24,
-    sport: "Track & Field",
-    status: "active",
-    lastSession: "2 hours ago",
-    avatar: "/female-athlete.png",
-    email: "sarah.johnson@email.com",
-    phone: "+1 (555) 123-4567",
-    joinDate: "Jan 2024",
-    totalSessions: 48,
-    upcomingSessions: 3,
-  },
-  {
-    id: "2",
-    name: "Marcus Williams",
-    age: 28,
-    sport: "Basketball",
-    status: "scheduled",
-    lastSession: "Tomorrow, 10:00 AM",
-    avatar: "/male-basketball-player.jpg",
-    email: "marcus.williams@email.com",
-    phone: "+1 (555) 234-5678",
-    joinDate: "Feb 2024",
-    totalSessions: 36,
-    upcomingSessions: 2,
-  },
-  {
-    id: "3",
-    name: "Emily Chen",
-    age: 22,
-    sport: "Swimming",
-    status: "completed",
-    lastSession: "Yesterday, 3:00 PM",
-    avatar: "/female-swimmer.jpg",
-    email: "emily.chen@email.com",
-    phone: "+1 (555) 345-6789",
-    joinDate: "Mar 2024",
-    totalSessions: 52,
-    upcomingSessions: 1,
-  },
-  {
-    id: "4",
-    name: "David Martinez",
-    age: 26,
-    sport: "Soccer",
-    status: "scheduled",
-    lastSession: "Today, 4:00 PM",
-    avatar: "/male-soccer-player.jpg",
-    email: "david.martinez@email.com",
-    phone: "+1 (555) 456-7890",
-    joinDate: "Dec 2023",
-    totalSessions: 64,
-    upcomingSessions: 4,
-  },
-  {
-    id: "5",
-    name: "Alex Thompson",
-    age: 25,
-    sport: "Tennis",
-    status: "active",
-    lastSession: "1 hour ago",
-    email: "alex.thompson@email.com",
-    phone: "+1 (555) 567-8901",
-    joinDate: "Jan 2024",
-    totalSessions: 42,
-    upcomingSessions: 2,
-  },
-  {
-    id: "6",
-    name: "Jessica Rodriguez",
-    age: 27,
-    sport: "Volleyball",
-    status: "completed",
-    lastSession: "2 days ago",
-    email: "jessica.rodriguez@email.com",
-    phone: "+1 (555) 678-9012",
-    joinDate: "Nov 2023",
-    totalSessions: 58,
-    upcomingSessions: 1,
-  },
-  {
-    id: "7",
-    name: "Ryan O'Connor",
-    age: 23,
-    sport: "Baseball",
-    status: "scheduled",
-    lastSession: "Friday, 2:00 PM",
-    email: "ryan.oconnor@email.com",
-    phone: "+1 (555) 789-0123",
-    joinDate: "Feb 2024",
-    totalSessions: 38,
-    upcomingSessions: 3,
-  },
-  {
-    id: "8",
-    name: "Mia Patel",
-    age: 21,
-    sport: "Gymnastics",
-    status: "active",
-    lastSession: "30 minutes ago",
-    email: "mia.patel@email.com",
-    phone: "+1 (555) 890-1234",
-    joinDate: "Mar 2024",
-    totalSessions: 44,
-    upcomingSessions: 2,
-  },
-  {
-    id: "9",
-    name: "Jordan Lee",
-    age: 29,
-    sport: "CrossFit",
-    status: "scheduled",
-    lastSession: "Monday, 9:00 AM",
-    email: "jordan.lee@email.com",
-    phone: "+1 (555) 901-2345",
-    joinDate: "Jan 2024",
-    totalSessions: 56,
-    upcomingSessions: 4,
-  },
-]
 
 const recentSessions = [
   {
@@ -217,6 +93,9 @@ export default function ClientPage() {
   const router = useRouter()
   const clientId = params.id as string
 
+  const [client, setClient] = useState<Subject | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [notes, setNotes] = useState<Note[]>([
     {
       id: "1",
@@ -236,14 +115,134 @@ export default function ClientPage() {
   ])
   const [newGoal, setNewGoal] = useState("")
 
-  const client = subjects.find((s) => s.id === clientId)
+  useEffect(() => {
+    fetchClient()
+  }, [clientId])
 
-  if (!client) {
+  const fetchClient = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const response = await fetch(`/api/subjects/${clientId}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        if (response.status === 404) {
+          setError("Client not found")
+        } else if (response.status === 403) {
+          setError(errorData.error || "You don't have permission to view this client")
+        } else {
+          setError(errorData.error || "Failed to fetch client")
+        }
+        setIsLoading(false)
+        return
+      }
+      const data = await response.json()
+      
+      // API returns { subject, coach } - extract subject from response
+      const subjectData = data.subject || data
+      
+      // Map the API response to the Subject interface
+      const firstName = subjectData.first_name || subjectData.f_name || ""
+      const lastName = subjectData.last_name || subjectData.l_name || ""
+      const name = subjectData.name || 
+                   subjectData.full_name || 
+                   (firstName && lastName ? `${firstName} ${lastName}`.trim() : firstName || lastName || "Unknown")
+      
+      // Calculate age from date_of_birth if available
+      let age: number | null = null
+      if (subjectData.date_of_birth) {
+        const birthDate = new Date(subjectData.date_of_birth)
+        const today = new Date()
+        age = today.getFullYear() - birthDate.getFullYear()
+        const monthDiff = today.getMonth() - birthDate.getMonth()
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+          age--
+        }
+      } else if (subjectData.age) {
+        age = parseInt(subjectData.age)
+      }
+      
+      const sport = subjectData.sport || subjectData.sport_type || subjectData.activity || "Not specified"
+      const status: "active" | "scheduled" | "completed" = subjectData.status === "pending_invite" 
+        ? "active" 
+        : (subjectData.status || "active")
+      
+      const lastSession = subjectData.last_session 
+        ? formatLastSession(subjectData.last_session)
+        : "No sessions yet"
+      
+      const mappedClient: Subject = {
+        id: subjectData.subject_id || subjectData.id || clientId,
+        name,
+        age,
+        sport,
+        status,
+        lastSession,
+        avatar: subjectData.avatar || subjectData.profile_image,
+        email: subjectData.email,
+        phone: subjectData.phone,
+        joinDate: subjectData.created_at ? formatJoinDate(subjectData.created_at) : undefined,
+        totalSessions: subjectData.total_sessions || 0,
+        upcomingSessions: subjectData.upcoming_sessions || 0,
+      }
+      
+      setClient(mappedClient)
+    } catch (err: any) {
+      setError(err.message || "Failed to load client")
+      console.error("Error fetching client:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const formatLastSession = (dateString: string): string => {
+    try {
+      const date = new Date(dateString)
+      const now = new Date()
+      const diffMs = now.getTime() - date.getTime()
+      const diffMins = Math.floor(diffMs / 60000)
+      const diffHours = Math.floor(diffMs / 3600000)
+      const diffDays = Math.floor(diffMs / 86400000)
+      
+      if (diffMins < 60) {
+        return `${diffMins} minutes ago`
+      } else if (diffHours < 24) {
+        return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
+      } else if (diffDays < 7) {
+        return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`
+      } else {
+        return date.toLocaleDateString()
+      }
+    } catch {
+      return "Recently"
+    }
+  }
+
+  const formatJoinDate = (dateString: string): string => {
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    } catch {
+      return "Recently"
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-8">
+        <Card className="p-8 text-center max-w-md">
+          <p className="text-muted-foreground">Loading client...</p>
+        </Card>
+      </div>
+    )
+  }
+
+  if (error || !client) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-8">
         <Card className="p-8 text-center max-w-md">
           <h2 className="text-2xl font-bold mb-4">Client Not Found</h2>
-          <p className="text-muted-foreground mb-6">The client you're looking for doesn't exist.</p>
+          <p className="text-muted-foreground mb-6">{error || "The client you're looking for doesn't exist."}</p>
           <Button onClick={() => router.push("/clients")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Clients
@@ -345,10 +344,6 @@ export default function ClientPage() {
                   <div className="flex gap-2">
                     <Button variant="outline" size="icon">
                       <Mail className="h-4 w-4" />
-                    </Button>
-                    <Button>
-                      <Video className="mr-2 h-4 w-4" />
-                      Start Session
                     </Button>
                   </div>
                 </div>

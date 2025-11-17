@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone } from "lucide-react"
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone, Grid3x3, Users, User, LayoutGrid } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -25,13 +25,16 @@ import { Track, TrackPublication } from "livekit-client"
 import MetricsDashboard from "./metrics-dashboard"
 import { useV2 } from "@/lib/v2-context"
 
+type LayoutMode = 'default' | 'grid' | 'spotlight' | 'one-on-one'
+
 interface LiveKitVideoSessionProps {
   roomName: string
   sessionTitle?: string
   sessionOwnerId?: string | null
+  sessionType?: string | null // "single" or "group"
 }
 
-export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwnerId }: LiveKitVideoSessionProps) {
+export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwnerId, sessionType }: LiveKitVideoSessionProps) {
   const { data: session } = useSession()
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(true)
@@ -131,6 +134,7 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
         sessionDuration={formatDuration(sessionDuration)}
         v2Enabled={v2Enabled}
         sessionOwnerId={sessionOwnerId}
+        sessionType={sessionType}
       />
       <RoomAudioRenderer />
     </LiveKitRoom>
@@ -146,6 +150,7 @@ function RoomContent({
   sessionDuration,
   v2Enabled,
   sessionOwnerId,
+  sessionType,
 }: {
   isPanelOpen: boolean
   setIsPanelOpen: (open: boolean) => void
@@ -155,10 +160,39 @@ function RoomContent({
   sessionDuration: string
   v2Enabled: boolean
   sessionOwnerId?: string | null
+  sessionType?: string | null
 }) {
+  // Layout state management
+  // Initialize layout based on session type:
+  // - 1:1 sessions start with 'one-on-one' (athlete big, coach small)
+  // - Group sessions start with 'grid' (all participants in grid)
+  // - Otherwise default (coach-focused)
+  const getInitialLayout = (): LayoutMode => {
+    if (sessionType === 'single') return 'one-on-one'
+    if (sessionType === 'group') return 'grid'
+    return 'default'
+  }
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
+    if (sessionType === 'single') return 'one-on-one'
+    if (sessionType === 'group') return 'grid'
+    return 'default'
+  })
+  const [spotlightParticipantId, setSpotlightParticipantId] = useState<string | null>(null)
   const { data: session } = useSession()
+  
+  // Update layout when session type changes
+  useEffect(() => {
+    if (sessionType === 'single') {
+      setLayoutMode('one-on-one')
+    } else if (sessionType === 'group') {
+      setLayoutMode('grid')
+    } else {
+      setLayoutMode('default')
+    }
+  }, [sessionType])
   const [isCoach, setIsCoach] = useState<boolean | null>(null)
   const [participantInfo, setParticipantInfo] = useState<Record<string, { firstName: string; lastName: string; fullName: string; label: string; role: string }>>({})
+  const fetchedParticipantsRef = useRef<Set<string>>(new Set())
   const room = useRoomContext()
   const localParticipant = room.localParticipant
   const remoteParticipants = Array.from(room.remoteParticipants.values())
@@ -224,40 +258,88 @@ function RoomContent({
   }, [session])
 
   // Get all participants using LiveKit hook
-  const participants = useParticipants()
+  // useParticipants() returns all participants including local participant
+  const participantsFromHook = useParticipants()
+  
+  // Also get participants directly from room to ensure we have all of them
+  const allRoomParticipants = [
+    localParticipant,
+    ...Array.from(room.remoteParticipants.values())
+  ]
+  
+  // Use room participants if hook is missing any (more reliable)
+  const participants = allRoomParticipants.length >= participantsFromHook.length 
+    ? allRoomParticipants 
+    : participantsFromHook
+  
+  console.log('useParticipants() count:', participantsFromHook.length)
+  console.log('Room participants count:', allRoomParticipants.length)
+  console.log('Using participants count:', participants.length)
 
   // Fetch participant info (first name, last name, label) for all participants
   useEffect(() => {
+    console.log('useEffect triggered for participant info fetch', {
+      participantsLength: participants.length,
+      localIdentity: localParticipant.identity,
+      remoteCount: remoteParticipants.length,
+      sessionOwnerId,
+      currentParticipantInfo: Object.keys(participantInfo),
+    })
+
     const fetchParticipantInfo = async () => {
       const allParticipants = [
         { identity: localParticipant.identity, isLocal: true },
         ...remoteParticipants.map((p) => ({ identity: p.identity, isLocal: false })),
       ]
 
-      const infoPromises = allParticipants.map(async (p) => {
-        // Skip if we already have info for this participant
-        if (participantInfo[p.identity]) {
-          return null
-        }
+      console.log('fetchParticipantInfo called, allParticipants:', allParticipants.map(p => ({ identity: p.identity, isLocal: p.isLocal })))
 
-        try {
+      const infoPromises = allParticipants
+        .filter(p => p.identity && p.identity.trim() !== '') // Filter out empty identities first
+        .map(async (p) => {
+          // Skip if we already have info for this participant or already fetched
+          if (participantInfo[p.identity] || fetchedParticipantsRef.current.has(p.identity)) {
+            console.log(`Skipping ${p.identity}, already have info or already fetched`)
+            return null
+          }
+          
+          // Mark as being fetched
+          fetchedParticipantsRef.current.add(p.identity)
+
+          try {
+          
           // Pass sessionOwnerId as query param to correctly identify the coach
           const url = sessionOwnerId 
-            ? `/api/participants/${p.identity}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}`
-            : `/api/participants/${p.identity}`
+            ? `/api/participants/${encodeURIComponent(p.identity)}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}`
+            : `/api/participants/${encodeURIComponent(p.identity)}`
+          
+          console.log(`Fetching participant info for: ${p.identity}`, url)
+          
           const response = await fetch(url)
           if (response.ok) {
             const data = await response.json()
+            console.log(`Participant info received for ${p.identity}:`, data)
+            
+            // Make sure we have valid name data
+            const firstName = data.firstName || ''
+            const lastName = data.lastName || ''
+            const fullName = data.fullName || (firstName && lastName ? `${firstName} ${lastName}`.trim() : '')
+            
+            console.log(`Parsed name data for ${p.identity}:`, { firstName, lastName, fullName, role: data.role })
+            
             return {
               identity: p.identity,
               info: {
-                firstName: data.firstName || '',
-                lastName: data.lastName || '',
-                fullName: data.fullName || p.identity,
+                firstName: firstName,
+                lastName: lastName,
+                fullName: fullName,
                 label: data.label || 'Participant',
                 role: data.role || 'unknown',
               },
             }
+          } else {
+            const errorText = await response.text()
+            console.error(`Failed to fetch participant info for ${p.identity}:`, response.status, errorText.substring(0, 200))
           }
         } catch (error) {
           console.error(`Error fetching info for participant ${p.identity}:`, error)
@@ -268,19 +350,34 @@ function RoomContent({
       const results = await Promise.all(infoPromises)
       const newInfo: typeof participantInfo = { ...participantInfo }
       
+      let hasUpdates = false
       results.forEach((result) => {
-        if (result) {
+        if (result && result.info) {
+          console.log(`Setting participant info for ${result.identity}:`, result.info)
           newInfo[result.identity] = result.info
+          hasUpdates = true
+        } else if (result) {
+          console.warn(`Result for ${result.identity} has no info:`, result)
         }
       })
 
-      if (Object.keys(newInfo).length > Object.keys(participantInfo).length) {
+      if (hasUpdates) {
+        console.log('Updating participantInfo state with:', newInfo)
         setParticipantInfo(newInfo)
+      } else {
+        console.log('No participant info updates to apply. Current participantInfo:', participantInfo)
+        console.log('Results from API:', results.filter(r => r !== null))
+        console.log('All participants that were processed:', allParticipants.filter(p => p.identity && p.identity.trim() !== ''))
       }
     }
 
     if (participants.length > 0) {
-      fetchParticipantInfo()
+      console.log('Calling fetchParticipantInfo, participants:', participants.map(p => p.identity))
+      fetchParticipantInfo().catch((error) => {
+        console.error('Error in fetchParticipantInfo:', error)
+      })
+    } else {
+      console.log('No participants yet, skipping fetch')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [participants.length, localParticipant.identity, remoteParticipants.length, sessionOwnerId])
@@ -300,13 +397,192 @@ function RoomContent({
   }
   
   // Other participants are everyone except the coach
+  // Include ALL participants, not just remote ones
   const otherParticipants = participants.filter((p) => p.identity !== coachParticipant?.identity)
+  
+  // Debug logging
+  console.log('Participants:', participants.length, participants.map(p => p.identity))
+  console.log('Coach:', coachParticipant?.identity)
+  console.log('Other participants:', otherParticipants.length, otherParticipants.map(p => p.identity))
   
   // Helper to get track for a participant
   const getTrackForParticipant = (participantIdentity: string) => {
     return tracks.find(
       (track) => track.participant.identity === participantIdentity && track.source === Track.Source.Camera
     )
+  }
+
+  // Helper to format participant name with role
+  const formatParticipantName = (info: typeof participantInfo[string] | undefined, participant: typeof participants[0]) => {
+    console.log(`formatParticipantName called for ${participant.identity}:`, { 
+      hasInfo: !!info, 
+      info, 
+      participantIdentity: participant.identity,
+      allParticipantInfoKeys: Object.keys(participantInfo)
+    })
+    
+    // If we have info from the API, use it
+    if (info) {
+      // Build name from firstName and lastName (from jak-users f_name/l_name or jak-subjects f_name/l_name)
+      const firstName = info.firstName || ''
+      const lastName = info.lastName || ''
+      
+      // Construct full name from firstName and lastName
+      let fullName = ''
+      if (firstName && lastName) {
+        fullName = `${firstName} ${lastName}`.trim()
+      } else if (info.fullName && !info.fullName.includes('@') && info.fullName.trim()) {
+        // Use fullName from API if it's not an email
+        fullName = info.fullName.trim()
+      } else if (firstName) {
+        fullName = firstName.trim()
+      } else if (lastName) {
+        fullName = lastName.trim()
+      }
+
+      console.log(`Name construction for ${participant.identity}:`, { firstName, lastName, fullNameFromInfo: info.fullName, constructedFullName: fullName })
+
+      // Only return formatted name if we have actual name data (not email, not empty)
+      if (fullName && fullName.trim() && !fullName.includes('@')) {
+        // Determine role label
+        const role = info.role === 'coach' ? 'Coach' : 'Participant'
+        const formattedName = `${fullName} (${role})`
+        console.log(`Returning formatted name for ${participant.identity}:`, formattedName)
+        return formattedName
+      } else {
+        console.log(`No valid name found for ${participant.identity}, fullName: "${fullName}", info:`, info)
+      }
+    } else {
+      console.log(`No info available yet for participant ${participant.identity}, participantInfo keys:`, Object.keys(participantInfo))
+    }
+
+    // Fallback: show "Loading..." while we wait for API response
+    // Don't show user_id or email
+    return 'Loading...'
+  }
+
+  // Helper to render a participant video tile
+  const renderParticipantTile = (participant: typeof participants[0], isLarge: boolean = false) => {
+    const trackRef = getTrackForParticipant(participant.identity)
+    const info = participantInfo[participant.identity]
+    const displayName = formatParticipantName(info, participant)
+    
+    // Get first letter for avatar
+    const firstName = info?.firstName || ''
+    const lastName = info?.lastName || ''
+    const firstLetter = firstName 
+      ? firstName.charAt(0).toUpperCase()
+      : (info?.fullName || participant.name || participant.identity).charAt(0).toUpperCase()
+
+    return (
+      <div
+        key={participant.identity}
+        className={`relative bg-black rounded-lg overflow-hidden ${
+          isLarge ? 'w-full h-full' : 'aspect-video'
+        }`}
+      >
+        {trackRef ? (
+          <TrackRefContext.Provider value={trackRef}>
+            <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
+          </TrackRefContext.Provider>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gray-900">
+            <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
+              <span className="text-2xl font-medium text-white">
+                {firstLetter}
+              </span>
+            </div>
+          </div>
+        )}
+        <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-xs md:text-sm">
+          <p className="font-medium text-white">{displayName}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Render layout based on layoutMode
+  const renderLayout = () => {
+    switch (layoutMode) {
+      case 'grid':
+        // Grid layout: all participants in a grid
+        return (
+          <div className="h-full w-full p-2 md:p-4 grid grid-cols-2 gap-2 md:gap-4">
+            {participants.map((participant) => renderParticipantTile(participant, false))}
+          </div>
+        )
+
+      case 'spotlight':
+        // Spotlight layout: one participant large, others small
+        // If only one participant total, don't show small boxes (no duplicates)
+        const spotlightParticipant = spotlightParticipantId
+          ? participants.find((p) => p.identity === spotlightParticipantId)
+          : otherParticipants[0] || coachParticipant
+
+        if (!spotlightParticipant) {
+          return <div className="h-full w-full flex items-center justify-center text-white">No participants</div>
+        }
+
+        const totalParticipantsSpotlight = participants.length
+        return (
+          <div className="h-full w-full flex flex-col md:flex-row">
+            {/* Main spotlight video */}
+            <div className="flex-1 min-w-0">
+              {renderParticipantTile(spotlightParticipant, true)}
+            </div>
+            {/* Small participant boxes (only if more than 1 participant total) */}
+            {otherParticipants.length > 0 && totalParticipantsSpotlight > 1 && (
+              <div className="md:w-40 md:flex-col md:gap-2 md:p-2 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
+                {otherParticipants
+                  .filter((p) => p.identity !== spotlightParticipant.identity)
+                  .map((participant) => renderParticipantTile(participant, false))}
+              </div>
+            )}
+          </div>
+        )
+
+      case 'one-on-one':
+        // 1:1 layout: athlete big, coach small
+        // If only one participant total, don't show small box (no duplicates)
+        const athlete = otherParticipants[0] || localParticipant
+        const totalParticipantsOneOnOne = participants.length
+        return (
+          <div className="h-full w-full flex flex-col md:flex-row">
+            {/* Athlete - large */}
+            <div className="flex-1 min-w-0">
+              {renderParticipantTile(athlete, true)}
+            </div>
+            {/* Coach - small (only if more than 1 participant total) */}
+            {coachParticipant && totalParticipantsOneOnOne > 1 && (
+              <div className="md:w-40 aspect-video md:aspect-auto">
+                {renderParticipantTile(coachParticipant, false)}
+              </div>
+            )}
+          </div>
+        )
+
+      case 'default':
+      default:
+        // Default layout: coach big, others small on the right
+        // If only one participant total, don't show small boxes (no duplicates)
+        const totalParticipants = participants.length
+        return (
+          <div className="h-full w-full flex flex-col md:flex-row">
+            {/* Coach - large */}
+            {coachParticipant && (
+              <div className="flex-1 min-w-0">
+                {renderParticipantTile(coachParticipant, true)}
+              </div>
+            )}
+            {/* Other participants - small boxes on the right (only if more than 1 participant total) */}
+            {otherParticipants.length > 0 && totalParticipants > 1 && (
+              <div className="md:w-40 md:flex-col md:gap-2 md:p-2 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
+                {otherParticipants.map((participant) => renderParticipantTile(participant, false))}
+              </div>
+            )}
+          </div>
+        )
+    }
   }
 
   return (
@@ -316,201 +592,83 @@ function RoomContent({
           isPanelOpen ? "md:w-[60%] w-full" : "w-full"
         }`}
       >
-        {/* Main video area - Speaker layout: Coach as main speaker with participants on right side */}
-        <div className="h-full min-h-0 relative overflow-hidden bg-black flex flex-row">
-          {/* Coach video - large main view (speaker layout) */}
-          <div className="flex-1 relative rounded-xl overflow-hidden bg-gray-900 m-2 md:m-4">
-            {coachParticipant ? (() => {
-              const coachTrackRef = getTrackForParticipant(coachParticipant.identity)
-              return (
-                <ParticipantContext.Provider value={coachParticipant}>
-                  {coachTrackRef ? (
-                    <TrackRefContext.Provider value={coachTrackRef}>
-                      <ParticipantTile className="h-full w-full" />
-                    </TrackRefContext.Provider>
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center bg-gray-900">
-                      <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center">
-                        <span className="text-3xl font-medium text-white">
-                          {(coachParticipant.name || coachParticipant.identity).charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-3 md:px-4 py-2 md:py-2.5 rounded-lg border border-white/10 z-10 shadow-lg">
-                    {(() => {
-                      const info = participantInfo[coachParticipant.identity]
-                      const firstName = info?.firstName || ''
-                      const lastName = info?.lastName || ''
-                      const label = info?.label || 'Coach'
-                      const isLocal = coachParticipant.identity === localParticipant.identity
-                      
-                      return (
-                        <div className="flex flex-col gap-0.5">
-                          {(firstName || lastName) ? (
-                            <>
-                              <p className="text-sm md:text-base font-semibold text-white">
-                                {firstName} {lastName}
-                              </p>
-                              <p className="text-xs md:text-sm text-white/70">
-                                {label} {isLocal ? "• You" : ""}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-sm md:text-base font-medium text-white">
-                              {coachParticipant.name || coachParticipant.identity} {isLocal ? "(You - Coach)" : "(Coach)"}
-                            </p>
-                          )}
-                        </div>
-                      )
-                    })()}
-                  </div>
-                  {(() => {
-                    const audioPublications = [...coachParticipant.audioTrackPublications.values()]
-                    const audioPublication = audioPublications[0]
-                    const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
-                    return isMuted ? (
-                      <div className="absolute top-2 right-2 bg-destructive p-2 rounded-full z-10">
-                        <MicOff className="h-4 w-4 text-destructive-foreground" />
-                      </div>
-                    ) : null
-                  })()}
-                </ParticipantContext.Provider>
-              )
-            })() : (
-              <div className="h-full w-full flex items-center justify-center bg-gray-900">
-                <div className="text-center">
-                  <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl font-medium text-white">
-                      {localParticipant.name?.charAt(0).toUpperCase() || "C"}
-                    </span>
-                  </div>
-                  <p className="text-muted-foreground">Waiting for coach...</p>
-                </div>
-              </div>
+        {/* Main video area - Dynamic layout based on layoutMode */}
+        <div className="h-full min-h-0 relative overflow-hidden bg-black">
+          {renderLayout()}
+        </div>
+
+        {/* Layout Controls - Show for coaches */}
+        {isCoach && (
+          <div className="absolute top-4 md:top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-2 rounded-full z-40 bg-black/60 backdrop-blur-md border border-white/10 shadow-lg">
+            {sessionType === 'group' ? (
+              <>
+                <button
+                  onClick={() => setLayoutMode('grid')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    layoutMode === 'grid' 
+                      ? 'bg-white text-black' 
+                      : 'bg-transparent text-white hover:bg-white/20'
+                  }`}
+                  title="Grid Layout"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    setLayoutMode('spotlight')
+                    if (!spotlightParticipantId && otherParticipants.length > 0) {
+                      setSpotlightParticipantId(otherParticipants[0].identity)
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    layoutMode === 'spotlight' 
+                      ? 'bg-white text-black' 
+                      : 'bg-transparent text-white hover:bg-white/20'
+                  }`}
+                  title="Spotlight Layout"
+                >
+                  <User className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setLayoutMode('default')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    layoutMode === 'default' 
+                      ? 'bg-white text-black' 
+                      : 'bg-transparent text-white hover:bg-white/20'
+                  }`}
+                  title="Default Layout"
+                >
+                  <Users className="h-4 w-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setLayoutMode('one-on-one')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    layoutMode === 'one-on-one' 
+                      ? 'bg-white text-black' 
+                      : 'bg-transparent text-white hover:bg-white/20'
+                  }`}
+                  title="1:1 Layout (Athlete Big)"
+                >
+                  <User className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setLayoutMode('default')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    layoutMode === 'default' 
+                      ? 'bg-white text-black' 
+                      : 'bg-transparent text-white hover:bg-white/20'
+                  }`}
+                  title="Default Layout (Coach Big)"
+                >
+                  <Users className="h-4 w-4" />
+                </button>
+              </>
             )}
           </div>
-          
-          {/* Participant boxes on right side (Desktop/Tablet) - vertical stack */}
-          {otherParticipants.length > 0 && (
-            <div className="hidden md:flex flex-col gap-2 justify-start px-2 py-2 overflow-y-auto scrollbar-hide w-40 md:w-48">
-              {otherParticipants.map((participant) => {
-                const isLocal = participant.identity === localParticipant.identity
-                const audioPublications = [...participant.audioTrackPublications.values()]
-                const audioPublication = audioPublications[0]
-                const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
-                
-                return (
-                  <div
-                    key={participant.identity}
-                    className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-full aspect-video flex-shrink-0 shadow-lg hover:border-white/20 transition-all hover:scale-105"
-                  >
-                    <ParticipantContext.Provider value={participant}>
-                      {(() => {
-                        const participantTrackRef = getTrackForParticipant(participant.identity)
-                        return participantTrackRef ? (
-                          <TrackRefContext.Provider value={participantTrackRef}>
-                            <ParticipantTile className="h-full w-full" />
-                          </TrackRefContext.Provider>
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center bg-gray-900">
-                            <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
-                              <span className="text-xl font-medium text-white">
-                                {(participant.name || participant.identity).charAt(0).toUpperCase()}
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      })()}
-                    </ParticipantContext.Provider>
-                    <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm px-1.5 py-1 rounded z-10">
-                      {(() => {
-                        const info = participantInfo[participant.identity]
-                        const firstName = info?.firstName || ''
-                        const lastName = info?.lastName || ''
-                        
-                        return (firstName || lastName) ? (
-                          <p className="text-[10px] font-semibold text-white truncate max-w-[120px]">
-                            {firstName} {lastName}
-                          </p>
-                        ) : (
-                          <p className="text-[10px] font-medium text-white truncate max-w-[120px]">
-                            {participant.name || participant.identity}
-                          </p>
-                        )
-                      })()}
-                    </div>
-                    {isMuted && (
-                      <div className="absolute top-1 right-1 bg-red-500/90 p-1 rounded-full z-10">
-                        <MicOff className="h-2.5 w-2.5 text-white" />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          
-          {/* Mobile: Horizontal scrollable participant row at bottom */}
-          {otherParticipants.length > 0 && (
-            <div className="md:hidden absolute bottom-16 left-0 right-0 flex flex-row gap-2 overflow-x-auto px-2 pb-2 z-20 scrollbar-hide" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0))' }}>
-              {otherParticipants.map((participant) => {
-                const isLocal = participant.identity === localParticipant.identity
-                const audioPublications = [...participant.audioTrackPublications.values()]
-                const audioPublication = audioPublications[0]
-                const isMuted = !audioPublication || !audioPublication.isSubscribed || audioPublication.isMuted
-                
-                return (
-                  <div
-                    key={participant.identity}
-                    className="relative rounded-lg overflow-hidden bg-black border border-white/10 w-24 h-20 flex-shrink-0 shadow-lg"
-                  >
-                    <ParticipantContext.Provider value={participant}>
-                      {(() => {
-                        const participantTrackRef = getTrackForParticipant(participant.identity)
-                        return participantTrackRef ? (
-                          <TrackRefContext.Provider value={participantTrackRef}>
-                            <ParticipantTile className="h-full w-full" />
-                          </TrackRefContext.Provider>
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center bg-gray-900">
-                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                              <span className="text-sm font-medium text-white">
-                                {(participant.name || participant.identity).charAt(0).toUpperCase()}
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      })()}
-                    </ParticipantContext.Provider>
-                    <div className="absolute bottom-0.5 left-0.5 bg-black/70 backdrop-blur-sm px-1 py-0.5 rounded z-10">
-                      {(() => {
-                        const info = participantInfo[participant.identity]
-                        const firstName = info?.firstName || ''
-                        const lastName = info?.lastName || ''
-                        
-                        return (firstName || lastName) ? (
-                          <p className="text-[9px] font-semibold text-white truncate max-w-[80px]">
-                            {firstName}
-                          </p>
-                        ) : (
-                          <p className="text-[9px] font-medium text-white truncate max-w-[80px]">
-                            {participant.name || participant.identity}
-                          </p>
-                        )
-                      })()}
-                    </div>
-                    {isMuted && (
-                      <div className="absolute top-0.5 right-0.5 bg-red-500/90 p-0.5 rounded-full z-10">
-                        <MicOff className="h-2 w-2 text-white" />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Controls - White pill-shaped bar with simple black icons */}
         <div 
@@ -535,9 +693,9 @@ function RoomContent({
             className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
           >
             {isMicMuted ? (
-              <MicOff className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+              <MicOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
             ) : (
-              <Mic className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+              <Mic className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
             )}
           </button>
           <button
@@ -555,28 +713,28 @@ function RoomContent({
             className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
           >
             {isCameraOff ? (
-              <VideoOff className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+              <VideoOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
             ) : (
-              <Video className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+              <Video className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
             )}
           </button>
           <button
             onClick={() => room.disconnect()}
             className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60 rounded-full h-10 w-10 md:h-12 md:w-12"
           >
-            <PhoneOff className="h-5 w-5 md:h-6 md:w-6" strokeWidth={2} />
+            <PhoneOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
           </button>
         </div>
 
         {/* Session info - Clean, minimal badges */}
-        <div className="absolute top-4 md:top-6 left-4 md:left-6 bg-black/60 backdrop-blur-md px-3 md:px-4 py-2 md:py-2.5 rounded-xl border border-white/10 z-10 shadow-lg">
-          <p className="text-[10px] md:text-xs text-white/60 uppercase tracking-wider mb-1">Session Duration</p>
-          <p className="text-sm md:text-base font-mono font-semibold text-white">{sessionDuration}</p>
-        </div>
-
-        <div className="absolute top-4 md:top-6 right-4 md:right-6 flex items-center gap-2 md:gap-2.5 bg-black/60 backdrop-blur-md px-3 md:px-4 py-2 md:py-2.5 rounded-xl border border-white/10 z-10 shadow-lg">
-          <div className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-green-400 animate-pulse shadow-lg shadow-green-400/50" />
-          <span className="text-xs md:text-sm font-medium text-white">Connected</span>
+        <div className="absolute top-4 md:top-6 left-4 md:left-6 bg-transparent px-3 md:px-4 py-2 md:py-2.5 rounded-xl z-10">
+          <p className="text-[7px] md:text-[8px] text-white/60 uppercase tracking-wider mb-0.5">Session Duration</p>
+          <p className="text-[9px] md:text-[11px] font-mono font-semibold text-white mb-1">{sessionDuration}</p>
+          {/* Connected status - smaller, inside Session Duration box */}
+          <div className="flex items-center gap-1.5 pt-0.5 border-t border-white/10">
+            <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-400 animate-pulse shadow-lg shadow-green-400/50" />
+            <span className="text-[8px] md:text-[10px] font-medium text-white/80">Connected</span>
+          </div>
         </div>
       </div>
 
@@ -626,16 +784,24 @@ function RoomContent({
             <h3 className="font-semibold text-sm">Participants</h3>
             {participants
               .filter((p) => p.identity !== localParticipant.identity)
-              .map((participant) => (
-                <Card key={participant.identity} className="p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                      <span className="text-xs font-medium">
-                        {(participant.name || participant.identity).charAt(0).toUpperCase()}
-                      </span>
+              .map((participant) => {
+                const info = participantInfo[participant.identity]
+                const displayName = formatParticipantName(info, participant)
+                const firstName = info?.firstName || ''
+                const firstLetter = firstName 
+                  ? firstName.charAt(0).toUpperCase()
+                  : (info?.fullName || participant.name || participant.identity).charAt(0).toUpperCase()
+                
+                return (
+                  <Card key={participant.identity} className="p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                        <span className="text-xs font-medium">
+                          {firstLetter}
+                        </span>
+                      </div>
+                      <span className="font-medium text-sm">{displayName}</span>
                     </div>
-                    <span className="font-medium text-sm">{participant.name || participant.identity}</span>
-                  </div>
                 <div className="space-y-2">
                   <label className="text-xs text-muted-foreground">Add Note</label>
                   <Textarea
@@ -660,7 +826,8 @@ function RoomContent({
                   </Button>
                 </div>
               </Card>
-            ))}
+                )
+              })}
           </TabsContent>
         </Tabs>
       </div>

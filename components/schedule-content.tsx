@@ -16,22 +16,79 @@ export default function ScheduleContent() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoadingSessions, setIsLoadingSessions] = useState(true)
   const [isCoach, setIsCoach] = useState(true) // Default to coach, will be updated
+  const [userFirstName, setUserFirstName] = useState<string>("")
 
-  // Fetch user groups to determine if user is a coach
+  // Fetch user groups and profile to determine role and get first name
   useEffect(() => {
-    const fetchUserGroups = async () => {
+    const fetchUserInfo = async () => {
+      if (!session?.user?.id) return
+      
       try {
-        const response = await fetch("/api/auth/user-groups")
-        if (response.ok) {
-          const data = await response.json()
-          setIsCoach(data.isCoach || false)
+        // Fetch user groups to determine role
+        const groupsResponse = await fetch("/api/auth/user-groups")
+        if (groupsResponse.ok) {
+          const groupsData = await groupsResponse.json()
+          setIsCoach(groupsData.isCoach || false)
+          
+          // Fetch user profile to get first name
+          let firstName = ""
+          
+          if (groupsData.isCoach) {
+            // For coaches, get from jak-users table
+            const profileResponse = await fetch("/api/user/profile")
+            if (profileResponse.ok) {
+              const profileData = await profileResponse.json()
+              console.log('Coach profile data:', profileData)
+              // Try f_name first, then fullName, then email
+              firstName = profileData.user?.f_name || 
+                          (profileData.user?.fullName ? profileData.user.fullName.split(" ")[0] : "") ||
+                          (profileData.user?.email ? profileData.user.email.split("@")[0] : "")
+              console.log('Extracted first name for coach:', firstName, 'from f_name:', profileData.user?.f_name, 'fullName:', profileData.user?.fullName, 'email:', profileData.user?.email)
+            } else {
+              console.error('Failed to fetch coach profile:', profileResponse.status, profileResponse.statusText)
+              // Fallback: extract first name from session user name, or from email (part before @)
+              if (session?.user?.name && !session.user.name.includes("@")) {
+                // If name exists and is not an email, use it
+                firstName = session.user.name.split(" ")[0]
+              } else if (session?.user?.email) {
+                // Extract from email (part before @)
+                firstName = session.user.email.split("@")[0]
+              } else if (session?.user?.name) {
+                // If name is an email address, extract from it
+                firstName = session.user.name.split("@")[0]
+              }
+            }
+          } else {
+            // For members, get from jak-subjects table
+            const profileResponse = await fetch(`/api/subjects/${session.user.id}`)
+            if (profileResponse.ok) {
+              const profileData = await profileResponse.json()
+              console.log('Member profile data:', profileData)
+              firstName = profileData.subject?.first_name || 
+                         profileData.subject?.f_name || 
+                         profileData.subject?.full_name?.split(" ")[0] || 
+                         profileData.subject?.name?.split(" ")[0] ||
+                         profileData.subject?.email?.split("@")[0] || 
+                         ""
+              console.log('Extracted first name for member:', firstName)
+            } else {
+              console.error('Failed to fetch member profile:', profileResponse.status, profileResponse.statusText)
+              // Fallback to session user name or email
+              firstName = session?.user?.name?.split(" ")[0] || session?.user?.email?.split("@")[0] || ""
+            }
+          }
+          
+          // Set first name if we have one
+          if (firstName) {
+            setUserFirstName(firstName)
+          }
         }
       } catch (error) {
-        console.error("Error fetching user groups:", error)
+        console.error("Error fetching user info:", error)
       }
     }
     if (session) {
-      fetchUserGroups()
+      fetchUserInfo()
     }
   }, [session])
 
@@ -88,6 +145,7 @@ export default function ScheduleContent() {
           clients: clients,
           link: `/session/${dbSession.session_id}`,
           status: dbSession.status || "scheduled",
+          sessionOwnerId: dbSession.user_id || null, // Add session owner ID for fetching coach name
         }
       })
 
@@ -187,6 +245,17 @@ export default function ScheduleContent() {
           isSchedulePanelOpen || selectedSession ? "w-[60%]" : "w-full"
         } flex flex-col`}
       >
+        {/* User Role Header - Show at the very top, above everything */}
+        <div className="p-3 pl-20 pt-4">
+          <h2 className="text-xl font-bold text-foreground">
+            {userFirstName 
+              ? `${isCoach ? "JAK Coach" : "JAK Member"}: ${userFirstName}`
+              : isCoach 
+                ? "JAK Coach" 
+                : "JAK Member"}
+          </h2>
+        </div>
+        
         {/* Header */}
         <div className="p-3 pl-20 flex flex-col flex-1 overflow-hidden">
           <div className="flex items-center justify-between mb-3">

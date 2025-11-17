@@ -1,9 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { Calendar, Clock, Users, LinkIcon, Video, ChevronRight } from "lucide-react"
+import { Calendar, Clock, Users, LinkIcon, Video, ChevronRight, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useState, useEffect } from "react"
 
 interface Session {
   id: string
@@ -14,6 +15,7 @@ interface Session {
   clients: string[]
   link: string
   status: "scheduled" | "completed" | "cancelled"
+  sessionOwnerId?: string | null
 }
 
 interface SessionDetailsPanelProps {
@@ -21,7 +23,15 @@ interface SessionDetailsPanelProps {
   onClose: () => void
 }
 
+interface ParticipantInfo {
+  name: string
+  id: string
+}
+
 export default function SessionDetailsPanel({ session, onClose }: SessionDetailsPanelProps) {
+  const [participantNames, setParticipantNames] = useState<ParticipantInfo[]>([])
+  const [coachName, setCoachName] = useState<string | null>(null)
+  const [isLoadingParticipants, setIsLoadingParticipants] = useState(true)
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
       weekday: "long",
@@ -30,6 +40,66 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
       day: "numeric",
     })
   }
+
+  // Fetch participant names and coach name
+  useEffect(() => {
+    const fetchParticipantInfo = async () => {
+      setIsLoadingParticipants(true)
+      try {
+        // Fetch coach name if sessionOwnerId is available
+        if (session.sessionOwnerId) {
+          try {
+            const coachResponse = await fetch(`/api/participants/${session.sessionOwnerId}?sessionOwnerId=${encodeURIComponent(session.sessionOwnerId)}`)
+            if (coachResponse.ok) {
+              const coachData = await coachResponse.json()
+              setCoachName(coachData.fullName || coachData.firstName || 'Coach')
+            }
+          } catch (error) {
+            console.error('Error fetching coach name:', error)
+          }
+        }
+
+        // Fetch participant names
+        const participantPromises = session.clients.map(async (clientId) => {
+          try {
+            const url = session.sessionOwnerId 
+              ? `/api/participants/${clientId}?sessionOwnerId=${encodeURIComponent(session.sessionOwnerId)}`
+              : `/api/participants/${clientId}`
+            const response = await fetch(url)
+            if (response.ok) {
+              const data = await response.json()
+              return {
+                id: clientId,
+                name: data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim() || clientId,
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching participant ${clientId}:`, error)
+          }
+          // Fallback to ID if fetch fails
+          return {
+            id: clientId,
+            name: clientId,
+          }
+        })
+
+        const participants = await Promise.all(participantPromises)
+        setParticipantNames(participants)
+      } catch (error) {
+        console.error('Error fetching participant info:', error)
+        // Fallback to IDs if all fetches fail
+        setParticipantNames(session.clients.map(id => ({ id, name: id })))
+      } finally {
+        setIsLoadingParticipants(false)
+      }
+    }
+
+    if (session.clients.length > 0) {
+      fetchParticipantInfo()
+    } else {
+      setIsLoadingParticipants(false)
+    }
+  }, [session.clients, session.sessionOwnerId])
 
   const copyLink = () => {
     const fullLink = `${window.location.origin}${session.link}`
@@ -57,6 +127,17 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+          {/* Coach Name */}
+          {coachName && (
+            <div className="flex items-start gap-3">
+              <User className="size-5 text-muted-foreground mt-1" />
+              <div>
+                <div className="font-semibold text-foreground">Coach</div>
+                <div className="text-muted-foreground">{coachName}</div>
+              </div>
+            </div>
+          )}
+
           {/* Date and Time */}
           <div className="space-y-4">
             <div className="flex items-start gap-3">
@@ -76,19 +157,23 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
             </div>
           </div>
 
-          {/* Clients */}
+          {/* Participants */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 font-semibold text-foreground">
               <Users className="size-5" />
               <span>Participants ({session.clients.length})</span>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {session.clients.map((client, index) => (
-                <Badge key={index} variant="outline">
-                  {client}
-                </Badge>
-              ))}
-            </div>
+            {isLoadingParticipants ? (
+              <div className="text-sm text-muted-foreground">Loading participants...</div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {participantNames.map((participant, index) => (
+                  <Badge key={participant.id || index} variant="outline">
+                    {participant.name}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Session Link */}

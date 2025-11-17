@@ -20,21 +20,26 @@ export async function GET(
 
     const { id: subjectId } = await params;
 
-    // Members can only view their own profile
-    if (session.user.id !== subjectId) {
-      return NextResponse.json(
-        { error: 'Forbidden - You can only view your own profile' },
-        { status: 403 }
-      );
-    }
-
     // Query by subject_id only - owner_id is the coach's ID, not the member's ID
     const subject = await getSubjectProfile(subjectId);
-
+    
     if (!subject) {
       return NextResponse.json(
         { error: 'Subject profile not found' },
         { status: 404 }
+      );
+    }
+
+    // Authorization check:
+    // - Members can only view their own profile (session.user.id === subjectId)
+    // - Coaches can view profiles of subjects they own (session.user.id === subject.owner_id)
+    const isViewingOwnProfile = session.user.id === subjectId;
+    const isCoachViewingClient = session.user.id === subject.owner_id;
+    
+    if (!isViewingOwnProfile && !isCoachViewingClient) {
+      return NextResponse.json(
+        { error: 'Forbidden - You can only view your own profile or profiles of clients assigned to you' },
+        { status: 403 }
       );
     }
 

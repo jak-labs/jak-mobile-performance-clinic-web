@@ -6,7 +6,9 @@ import { getSubjectProfile } from '@/lib/dynamodb-subjects';
 import { getUserProfile } from '@/lib/dynamodb';
 import { randomUUID } from 'crypto';
 import { RoomServiceClient } from 'livekit-server-sdk';
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { SESClient, SendRawEmailCommand } from '@aws-sdk/client-ses';
+import { generateICS } from '@/lib/icalendar';
+import { createMultipartEmail } from '@/lib/email-utils';
 
 // Initialize SES client
 // Use JAK_ prefixed vars for Netlify (AWS_* are reserved), fallback to AWS_* for local dev
@@ -237,27 +239,43 @@ This session is scheduled for ${formattedDate} at ${formattedTime}. You can acce
 
           const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@api.jak-labs.com';
 
+          // Generate calendar invite for the session
+          const sessionStartDate = new Date(sessionDateTime);
+          const sessionEndDate = new Date(sessionStartDate);
+          sessionEndDate.setMinutes(sessionEndDate.getMinutes() + duration);
+
+          const calendarEvent = generateICS({
+            summary: title,
+            description: `${sessionTypeText} with ${coachName}${notes ? `\n\nNotes: ${notes}` : ''}\n\nJoin session: ${sessionLink}`,
+            startDate: sessionStartDate,
+            endDate: sessionEndDate,
+            location: 'JAK Labs Video Session',
+            organizer: {
+              name: coachName,
+              email: session.user.email || fromEmail,
+            },
+            attendee: {
+              name: memberName,
+              email: subject.email,
+            },
+            url: sessionLink,
+          });
+
+          // Create multipart email with calendar attachment
+          const rawEmail = createMultipartEmail(
+            fromEmail,
+            subject.email,
+            emailSubject,
+            emailBody,
+            textBody,
+            calendarEvent,
+            `jak-labs-session-${sessionId}.ics`
+          );
+
           await sesClient.send(
-            new SendEmailCommand({
-              Source: fromEmail,
-              Destination: {
-                ToAddresses: [subject.email],
-              },
-              Message: {
-                Subject: {
-                  Data: emailSubject,
-                  Charset: 'UTF-8',
-                },
-                Body: {
-                  Html: {
-                    Data: emailBody,
-                    Charset: 'UTF-8',
-                  },
-                  Text: {
-                    Data: textBody,
-                    Charset: 'UTF-8',
-                  },
-                },
+            new SendRawEmailCommand({
+              RawMessage: {
+                Data: rawEmail,
               },
             })
           );

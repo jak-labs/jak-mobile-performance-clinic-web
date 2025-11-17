@@ -33,6 +33,7 @@ export default function Navigation() {
   const { data: session } = useSession()
   const [open, setOpen] = useState(false)
   const [isMember, setIsMember] = useState(false)
+  const [unassignedCount, setUnassignedCount] = useState(0)
   const { v2Enabled, setV2Enabled } = useV2()
 
   // Fetch user groups to determine navigation items
@@ -52,6 +53,28 @@ export default function Navigation() {
       fetchUserGroups()
     }
   }, [session])
+
+  // Fetch unassigned clients count (only for coaches)
+  useEffect(() => {
+    const fetchUnassignedCount = async () => {
+      if (isMember || !session) return
+      try {
+        const response = await fetch("/api/subjects")
+        if (response.ok) {
+          const data = await response.json()
+          setUnassignedCount(data.unassignedSubjects?.length || 0)
+        }
+      } catch (error) {
+        console.error("Error fetching unassigned count:", error)
+      }
+    }
+    if (!isMember && session) {
+      fetchUnassignedCount()
+      // Refresh count every 30 seconds
+      const interval = setInterval(fetchUnassignedCount, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [session, isMember])
 
   const handleSignOut = async () => {
     setOpen(false)
@@ -101,18 +124,24 @@ export default function Navigation() {
               <ul className="flex flex-col gap-2">
                 {visibleNavItems.map((item) => {
                   const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+                  const showUnassignedBadge = item.href === "/clients" && !isMember && unassignedCount > 0
                   return (
                     <li key={item.href}>
                       <Link
                         href={item.href}
                         onClick={() => setOpen(false)}
                         className={cn(
-                          "flex items-center px-4 py-3 rounded-lg text-base font-medium transition-colors",
+                          "flex items-center justify-between px-4 py-3 rounded-lg text-base font-medium transition-colors",
                           "hover:bg-accent hover:text-accent-foreground",
                           isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground",
                         )}
                       >
-                        {item.name}
+                        <span>{item.name}</span>
+                        {showUnassignedBadge && (
+                          <span className="ml-2 px-2 py-0.5 text-xs font-semibold text-white bg-red-500 rounded-full">
+                            {unassignedCount} Un-Assigned
+                          </span>
+                        )}
                       </Link>
                     </li>
                   )

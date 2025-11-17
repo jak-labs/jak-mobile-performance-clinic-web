@@ -33,11 +33,19 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Get user's groups
+    // Get user's groups - use session.user.id (which is the email/username) or fallback to email
+    const username = session.user.id || session.user.email;
+    if (!username) {
+      return NextResponse.json(
+        { error: 'User identifier not found in session' },
+        { status: 401 }
+      );
+    }
+    
     const groupsResponse = await cognitoClient.send(
       new AdminListGroupsForUserCommand({
         UserPoolId: userPoolId,
-        Username: session.user.email,
+        Username: username,
       })
     );
 

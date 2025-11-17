@@ -11,6 +11,7 @@ export default function SessionPage() {
   const [roomName, setRoomName] = useState<string | null>(null)
   const [sessionTitle, setSessionTitle] = useState<string>("")
   const [sessionOwnerId, setSessionOwnerId] = useState<string | null>(null)
+  const [sessionType, setSessionType] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,6 +33,7 @@ export default function SessionPage() {
 
         setSessionTitle(session.title || "Session")
         setSessionOwnerId(session.user_id || null)
+        setSessionType(session.session_type || null) // "single" or "group"
         
         // Use livekit_room_name if available, otherwise generate from session_id
         const room = session.livekit_room_name || `session-${sessionId}`
@@ -75,7 +77,12 @@ export default function SessionPage() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
-      <LiveKitVideoSession roomName={roomName} sessionTitle={sessionTitle} sessionOwnerId={sessionOwnerId} />
+      <LiveKitVideoSession 
+        roomName={roomName} 
+        sessionTitle={sessionTitle} 
+        sessionOwnerId={sessionOwnerId}
+        sessionType={sessionType}
+      />
     </div>
   )
 }

@@ -59,8 +59,8 @@ export async function POST(req: NextRequest) {
     const signupUrl = `${baseUrl}/sign-up?invite=${inviteToken}&email=${encodeURIComponent(email)}`;
 
     // Save client/subject to DynamoDB with pending status
-    // We'll use a temporary subject_id until they sign up
-    const tempSubjectId = `pending-${inviteToken}`;
+    // We'll use the invite token as temporary subject_id until they sign up
+    const tempSubjectId = inviteToken;
     
     try {
       await saveSubjectProfile({
@@ -145,6 +145,7 @@ If you didn't expect this invitation, you can safely ignore this email.
     `;
 
     try {
+      // Send simple email (no calendar invite for signup invitations)
       await sesClient.send(
         new SendEmailCommand({
           Source: fromEmail,

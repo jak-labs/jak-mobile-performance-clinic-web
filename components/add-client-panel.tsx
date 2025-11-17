@@ -17,9 +17,10 @@ import { useV2 } from "@/lib/v2-context"
 interface AddClientPanelProps {
   isOpen: boolean
   onClose: () => void
+  onClientAdded?: () => void
 }
 
-export default function AddClientPanel({ isOpen, onClose }: AddClientPanelProps) {
+export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddClientPanelProps) {
   const { v2Enabled } = useV2()
 
   const [formData, setFormData] = useState({
@@ -92,10 +93,13 @@ export default function AddClientPanel({ isOpen, onClose }: AddClientPanelProps)
         cardCvv: "",
       })
 
-      // Close panel after 2 seconds
+      // Close panel after 2 seconds and refresh client list
       setTimeout(() => {
         onClose()
         setSuccess("")
+        if (onClientAdded) {
+          onClientAdded()
+        }
       }, 2000)
     } catch (err: any) {
       setError(err.message || "An error occurred while adding the client")

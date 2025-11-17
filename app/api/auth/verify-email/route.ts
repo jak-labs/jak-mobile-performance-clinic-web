@@ -101,6 +101,9 @@ export async function POST(req: NextRequest) {
           const groups = groupsResponse.Groups || [];
           const isMember = groups.some((g) => g.GroupName === 'Member');
           const isCoach = groups.some((g) => g.GroupName === 'Coach');
+          
+          console.log('User groups after verification:', groups.map(g => g.GroupName));
+          console.log('isCoach:', isCoach, 'isMember:', isMember);
 
           // Get user attributes including sub
           const userResponse = await cognitoClient.send(
@@ -116,26 +119,85 @@ export async function POST(req: NextRequest) {
 
           // Save to appropriate DynamoDB table based on group
           if (isMember) {
+            // Check if subject profile already exists (from invite migration)
+            // If they signed up with an invite, migratePendingSubjectToActive already created the profile
+            // We should only create a new profile if one doesn't exist
+            const { getSubjectProfile, updateSubjectProfile } = await import('@/lib/dynamodb-subjects');
+            
+            // Try to find existing profile by scanning (since we only have subject_id, not owner_id)
+            // If profile exists, it means they signed up with an invite - don't overwrite it
+            let existingProfile = null;
+            try {
+              // Use getSubjectProfile which scans for subject_id
+              existingProfile = await getSubjectProfile(userId);
+            } catch (scanError) {
+              console.error('Error checking for existing profile:', scanError);
+              // Continue - we'll try to create/update anyway
+            }
+            
             // Parse fullName into f_name and l_name if provided
             const nameParts = fullName ? fullName.split(' ') : [];
             const f_name = nameParts[0] || '';
             const l_name = nameParts.slice(1).join(' ') || '';
 
-            await saveSubjectProfile({
-              owner_id: userId, // For direct signups, owner is themselves
-              subject_id: userId,
-              email,
-              name: fullName,
-              full_name: fullName,
-              f_name: f_name || undefined,
-              l_name: l_name || undefined,
-            });
+            if (existingProfile) {
+              // Profile already exists (from invite migration) - just update name fields if provided
+              // This preserves the existing owner_id (coach's ID) from the invite
+              if (fullName) {
+                await updateSubjectProfile(
+                  userId,
+                  {
+                    name: fullName,
+                    full_name: fullName,
+                    f_name: f_name || undefined,
+                    l_name: l_name || undefined,
+                  },
+                  existingProfile.owner_id // Preserve the existing owner_id (coach's ID)
+                );
+              }
+            } else {
+              // No existing profile - create new one (direct signup without invite)
+              await saveSubjectProfile({
+                owner_id: userId, // For direct signups, owner is themselves
+                subject_id: userId,
+                email,
+                name: fullName,
+                full_name: fullName,
+                f_name: f_name || undefined,
+                l_name: l_name || undefined,
+              });
+            }
           } else if (isCoach) {
-            await saveUserProfile({
-              userId: userId,
-              email,
-              fullName: fullName || undefined,
-            });
+            // Parse fullName into f_name and l_name for coaches
+            const nameParts = fullName ? fullName.split(' ') : [];
+            const f_name = nameParts[0] || undefined;
+            const l_name = nameParts.slice(1).join(' ') || undefined;
+            
+            console.log('Saving coach profile to jak-users:', { userId, email, fullName, f_name, l_name });
+            
+            try {
+              const { saveUserProfile } = await import('@/lib/dynamodb');
+              await saveUserProfile({
+                userId: userId,
+                email,
+                fullName: fullName || undefined,
+                f_name: f_name,
+                l_name: l_name,
+              });
+              console.log('Coach profile saved successfully to jak-users');
+            } catch (saveError: any) {
+              console.error('ERROR SAVING COACH PROFILE:', saveError);
+              console.error('Error details:', {
+                message: saveError.message,
+                name: saveError.name,
+                code: saveError.code,
+                stack: saveError.stack
+              });
+              throw saveError; // Re-throw to be caught by outer catch
+            }
+          } else {
+            // User is not in any group - log warning but don't save
+            console.warn('User is not in Coach or Member group. Groups:', groups.map(g => g.GroupName));
           }
 
           resolve(
@@ -148,16 +210,22 @@ export async function POST(req: NextRequest) {
             )
           );
         } catch (dbError: any) {
-          console.error('Error saving user profile after verification:', dbError);
-          // Still return success since email verification succeeded
+          console.error('ERROR SAVING USER PROFILE AFTER VERIFICATION:', dbError);
+          console.error('Error details:', {
+            message: dbError.message,
+            name: dbError.name,
+            code: dbError.code,
+            stack: dbError.stack
+          });
+          // Return error so user knows something went wrong
           resolve(
             NextResponse.json(
               {
-                message: 'Email verified successfully',
+                error: 'Email verified but failed to save profile',
+                message: dbError.message || 'Failed to save user profile',
                 verified: true,
-                warning: 'User profile could not be saved to database. Please contact support.',
               },
-              { status: 200 }
+              { status: 500 }
             )
           );
         }

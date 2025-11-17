@@ -118,15 +118,18 @@ export async function GET(req: NextRequest) {
     try {
       const userPoolId = process.env.COGNITO_ISSUER?.split('/').pop();
       if (userPoolId) {
-        const groupsResponse = await cognitoClient.send(
-          new AdminListGroupsForUserCommand({
-            UserPoolId: userPoolId,
-            Username: session.user.email,
-          })
-        );
-        const groups = groupsResponse.Groups || [];
-        isMember = groups.some((g) => g.GroupName === 'Member');
-        isCoach = groups.some((g) => g.GroupName === 'Coach');
+        const username = session.user.id || session.user.email;
+        if (username) {
+          const groupsResponse = await cognitoClient.send(
+            new AdminListGroupsForUserCommand({
+              UserPoolId: userPoolId,
+              Username: username,
+            })
+          );
+          const groups = groupsResponse.Groups || [];
+          isMember = groups.some((g) => g.GroupName === 'Member');
+          isCoach = groups.some((g) => g.GroupName === 'Coach');
+        }
       }
     } catch (error) {
       console.error('Error checking user groups:', error);
