@@ -529,10 +529,12 @@ function RoomContent({
         const totalParticipantsOneOnOne = participants.length
         return (
           <div className="h-full w-full flex flex-col md:flex-row">
-            {/* Athlete - large */}
-            <div className="flex-1 min-w-0">
-              {renderParticipantTile(athlete, true)}
-            </div>
+            {/* Athlete/Member - large */}
+            {athleteParticipant && (
+              <div className="flex-1 min-w-0 h-full">
+                {renderParticipantTile(athleteParticipant, true)}
+              </div>
+            )}
             {/* Coach - small (only if more than 1 participant total) */}
             {coachParticipant && totalParticipantsOneOnOne > 1 && (
               <div className="md:w-40 md:flex-col md:gap-2 md:p-2 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
@@ -578,9 +580,8 @@ function RoomContent({
           {renderLayout()}
         </div>
 
-        {/* Layout Controls - Show for coaches */}
-        {isCoach && (
-          <div className="absolute top-4 md:top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-2 rounded-full z-40 bg-black/60 backdrop-blur-md border border-white/10 shadow-lg">
+        {/* Layout Controls - Show for all participants */}
+        <div className="absolute top-4 md:top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-2 rounded-full z-40 bg-black/60 backdrop-blur-md border border-white/10 shadow-lg">
             {sessionType === 'group' ? (
               <>
                 <button
@@ -649,7 +650,6 @@ function RoomContent({
               </>
             )}
           </div>
-        )}
 
         {/* Controls - White pill-shaped bar with simple black icons */}
         <div 
