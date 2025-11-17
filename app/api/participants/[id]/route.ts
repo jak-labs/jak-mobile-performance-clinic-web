@@ -37,41 +37,39 @@ export async function GET(
     // Determine if this participant is the coach (session owner)
     const isSessionOwner = sessionOwnerId && participantId === sessionOwnerId;
     
-    // Try jak-users table first (coaches)
+    // Try jak-users table first (coaches) - query by user_id
     const coachProfile = await getUserProfile(participantId);
     if (coachProfile) {
+      // Get full_name directly from database
+      const fullName = coachProfile.fullName || '';
       const firstName = coachProfile.f_name || '';
       const lastName = coachProfile.l_name || '';
-      const fullName = (firstName && lastName) 
-        ? `${firstName} ${lastName}`.trim()
-        : coachProfile.full_name || '';
       
       return NextResponse.json({
         userId: participantId,
         email: coachProfile.email,
         firstName: firstName,
         lastName: lastName,
-        fullName: fullName,
+        fullName: fullName, // Use full_name from jak-users table
         role: isSessionOwner ? 'coach' : 'participant',
         label: isSessionOwner ? 'Coach' : 'Participant',
       });
     }
     
-    // Try jak-subjects table (members)
+    // Try jak-subjects table (members) - query by subject_id
     const subjectProfile = await getSubjectProfile(participantId);
     if (subjectProfile) {
+      // Get full_name directly from database
+      const fullName = subjectProfile.full_name || '';
       const firstName = subjectProfile.f_name || '';
       const lastName = subjectProfile.l_name || '';
-      const fullName = (firstName && lastName)
-        ? `${firstName} ${lastName}`.trim()
-        : subjectProfile.full_name || '';
       
       return NextResponse.json({
         userId: participantId,
         email: subjectProfile.email,
         firstName: firstName,
         lastName: lastName,
-        fullName: fullName,
+        fullName: fullName, // Use full_name from jak-subjects table
         role: 'member',
         label: 'Participant',
       });

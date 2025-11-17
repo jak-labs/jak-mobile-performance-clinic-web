@@ -272,34 +272,20 @@ function RoomContent({
     ? allRoomParticipants 
     : participantsFromHook
   
-  console.log('useParticipants() count:', participantsFromHook.length)
-  console.log('Room participants count:', allRoomParticipants.length)
-  console.log('Using participants count:', participants.length)
 
   // Fetch participant info (first name, last name, label) for all participants
   useEffect(() => {
-    console.log('useEffect triggered for participant info fetch', {
-      participantsLength: participants.length,
-      localIdentity: localParticipant.identity,
-      remoteCount: remoteParticipants.length,
-      sessionOwnerId,
-      currentParticipantInfo: Object.keys(participantInfo),
-    })
-
     const fetchParticipantInfo = async () => {
       const allParticipants = [
         { identity: localParticipant.identity, isLocal: true },
         ...remoteParticipants.map((p) => ({ identity: p.identity, isLocal: false })),
       ]
 
-      console.log('fetchParticipantInfo called, allParticipants:', allParticipants.map(p => ({ identity: p.identity, isLocal: p.isLocal })))
-
       const infoPromises = allParticipants
         .filter(p => p.identity && p.identity.trim() !== '') // Filter out empty identities first
         .map(async (p) => {
           // Skip if we already have info for this participant or already fetched
           if (participantInfo[p.identity] || fetchedParticipantsRef.current.has(p.identity)) {
-            console.log(`Skipping ${p.identity}, already have info or already fetched`)
             return null
           }
           
@@ -307,25 +293,19 @@ function RoomContent({
           fetchedParticipantsRef.current.add(p.identity)
 
           try {
-          
           // Pass sessionOwnerId as query param to correctly identify the coach
           const url = sessionOwnerId 
             ? `/api/participants/${encodeURIComponent(p.identity)}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}`
             : `/api/participants/${encodeURIComponent(p.identity)}`
           
-          console.log(`Fetching participant info for: ${p.identity}`, url)
-          
           const response = await fetch(url)
           if (response.ok) {
             const data = await response.json()
-            console.log(`Participant info received for ${p.identity}:`, data)
             
             // Make sure we have valid name data
             const firstName = data.firstName || ''
             const lastName = data.lastName || ''
             const fullName = data.fullName || (firstName && lastName ? `${firstName} ${lastName}`.trim() : '')
-            
-            console.log(`Parsed name data for ${p.identity}:`, { firstName, lastName, fullName, role: data.role })
             
             return {
               identity: p.identity,
@@ -337,12 +317,9 @@ function RoomContent({
                 role: data.role || 'unknown',
               },
             }
-          } else {
-            const errorText = await response.text()
-            console.error(`Failed to fetch participant info for ${p.identity}:`, response.status, errorText.substring(0, 200))
           }
         } catch (error) {
-          console.error(`Error fetching info for participant ${p.identity}:`, error)
+          // Silently fail - will show "Loading..." as fallback
         }
         return null
       })
@@ -400,10 +377,6 @@ function RoomContent({
   // Include ALL participants, not just remote ones
   const otherParticipants = participants.filter((p) => p.identity !== coachParticipant?.identity)
   
-  // Debug logging
-  console.log('Participants:', participants.length, participants.map(p => p.identity))
-  console.log('Coach:', coachParticipant?.identity)
-  console.log('Other participants:', otherParticipants.length, otherParticipants.map(p => p.identity))
   
   // Helper to get track for a participant
   const getTrackForParticipant = (participantIdentity: string) => {
@@ -414,50 +387,23 @@ function RoomContent({
 
   // Helper to format participant name with role
   const formatParticipantName = (info: typeof participantInfo[string] | undefined, participant: typeof participants[0]) => {
-    console.log(`formatParticipantName called for ${participant.identity}:`, { 
-      hasInfo: !!info, 
-      info, 
-      participantIdentity: participant.identity,
-      allParticipantInfoKeys: Object.keys(participantInfo)
-    })
-    
     // If we have info from the API, use it
-    if (info) {
-      // Build name from firstName and lastName (from jak-users f_name/l_name or jak-subjects f_name/l_name)
-      const firstName = info.firstName || ''
-      const lastName = info.lastName || ''
-      
-      // Construct full name from firstName and lastName
-      let fullName = ''
-      if (firstName && lastName) {
-        fullName = `${firstName} ${lastName}`.trim()
-      } else if (info.fullName && !info.fullName.includes('@') && info.fullName.trim()) {
-        // Use fullName from API if it's not an email
-        fullName = info.fullName.trim()
-      } else if (firstName) {
-        fullName = firstName.trim()
-      } else if (lastName) {
-        fullName = lastName.trim()
-      }
-
-      console.log(`Name construction for ${participant.identity}:`, { firstName, lastName, fullNameFromInfo: info.fullName, constructedFullName: fullName })
-
-      // Only return formatted name if we have actual name data (not email, not empty)
-      if (fullName && fullName.trim() && !fullName.includes('@')) {
-        // Determine role label
+    if (info && info.fullName && info.fullName.trim() && !info.fullName.includes('@')) {
+      // Use fullName directly from database (jak-users.full_name or jak-subjects.full_name)
+      const role = info.role === 'coach' ? 'Coach' : 'Participant'
+      return `${info.fullName.trim()} (${role})`
+    }
+    
+    // If no fullName but we have firstName/lastName, construct it
+    if (info && (info.firstName || info.lastName)) {
+      const fullName = `${info.firstName || ''} ${info.lastName || ''}`.trim()
+      if (fullName) {
         const role = info.role === 'coach' ? 'Coach' : 'Participant'
-        const formattedName = `${fullName} (${role})`
-        console.log(`Returning formatted name for ${participant.identity}:`, formattedName)
-        return formattedName
-      } else {
-        console.log(`No valid name found for ${participant.identity}, fullName: "${fullName}", info:`, info)
+        return `${fullName} (${role})`
       }
-    } else {
-      console.log(`No info available yet for participant ${participant.identity}, participantInfo keys:`, Object.keys(participantInfo))
     }
 
     // Fallback: show "Loading..." while we wait for API response
-    // Don't show user_id or email
     return 'Loading...'
   }
 
@@ -527,7 +473,7 @@ function RoomContent({
         return (
           <div className="h-full w-full flex flex-col md:flex-row">
             {/* Main spotlight video */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0" style={{ flex: '0 0 95%' }}>
               {renderParticipantTile(spotlightParticipant, true)}
             </div>
             {/* Small participant boxes (only if more than 1 participant total) */}
@@ -549,7 +495,7 @@ function RoomContent({
         return (
           <div className="h-full w-full flex flex-col md:flex-row">
             {/* Athlete - large */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0" style={{ flex: '0 0 95%' }}>
               {renderParticipantTile(athlete, true)}
             </div>
             {/* Coach - small (only if more than 1 participant total) */}
@@ -570,7 +516,7 @@ function RoomContent({
           <div className="h-full w-full flex flex-col md:flex-row">
             {/* Coach - large */}
             {coachParticipant && (
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0" style={{ flex: '0 0 95%' }}>
                 {renderParticipantTile(coachParticipant, true)}
               </div>
             )}
