@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone, Grid3x3, Users, User, LayoutGrid } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -162,6 +163,7 @@ function RoomContent({
   sessionOwnerId?: string | null
   sessionType?: string | null
 }) {
+  const router = useRouter()
   // Layout state management
   // Initialize layout based on session type:
   // - 1:1 sessions start with 'one-on-one' (athlete big, coach small)
@@ -272,27 +274,14 @@ function RoomContent({
     ? allRoomParticipants 
     : participantsFromHook
   
-  console.log('useParticipants() count:', participantsFromHook.length)
-  console.log('Room participants count:', allRoomParticipants.length)
-  console.log('Using participants count:', participants.length)
 
   // Fetch participant info (first name, last name, label) for all participants
   useEffect(() => {
-    console.log('useEffect triggered for participant info fetch', {
-      participantsLength: participants.length,
-      localIdentity: localParticipant.identity,
-      remoteCount: remoteParticipants.length,
-      sessionOwnerId,
-      currentParticipantInfo: Object.keys(participantInfo),
-    })
-
     const fetchParticipantInfo = async () => {
       const allParticipants = [
         { identity: localParticipant.identity, isLocal: true },
         ...remoteParticipants.map((p) => ({ identity: p.identity, isLocal: false })),
       ]
-
-      console.log('fetchParticipantInfo called, allParticipants:', allParticipants.map(p => ({ identity: p.identity, isLocal: p.isLocal })))
 
       const infoPromises = allParticipants
         .filter(p => p.identity && p.identity.trim() !== '') // Filter out empty identities first
@@ -542,20 +531,22 @@ function RoomContent({
         )
 
       case 'one-on-one':
-        // 1:1 layout: athlete big, coach small
+        // 1:1 layout: athlete/member big (left), coach small (right) - swapped from default
         // If only one participant total, don't show small box (no duplicates)
-        const athlete = otherParticipants[0] || localParticipant
+        const athleteParticipant = otherParticipants[0] || localParticipant
         const totalParticipantsOneOnOne = participants.length
         return (
           <div className="h-full w-full flex flex-col md:flex-row">
-            {/* Athlete - large */}
-            <div className="flex-1 min-w-0">
-              {renderParticipantTile(athlete, true)}
-            </div>
+            {/* Athlete/Member - large */}
+            {athleteParticipant && (
+              <div className="flex-1 min-w-0 h-full">
+                {renderParticipantTile(athleteParticipant, true)}
+              </div>
+            )}
             {/* Coach - small (only if more than 1 participant total) */}
             {coachParticipant && totalParticipantsOneOnOne > 1 && (
-              <div className="md:w-40 aspect-video md:aspect-auto">
-                {renderParticipantTile(coachParticipant, false)}
+              <div className="md:w-40 md:flex-col md:gap-2 md:p-2 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
+                {[coachParticipant].map((participant) => renderParticipantTile(participant, false))}
               </div>
             )}
           </div>
@@ -570,7 +561,7 @@ function RoomContent({
           <div className="h-full w-full flex flex-col md:flex-row">
             {/* Coach - large */}
             {coachParticipant && (
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 h-full">
                 {renderParticipantTile(coachParticipant, true)}
               </div>
             )}
@@ -650,7 +641,7 @@ function RoomContent({
                       ? 'bg-white text-black' 
                       : 'bg-transparent text-white hover:bg-white/20'
                   }`}
-                  title="1:1 Layout (Athlete Big)"
+                  title="1:1 Layout"
                 >
                   <User className="h-4 w-4" />
                 </button>
@@ -719,7 +710,10 @@ function RoomContent({
             )}
           </button>
           <button
-            onClick={() => room.disconnect()}
+            onClick={async () => {
+              await room.disconnect()
+              router.push('/')
+            }}
             className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60 rounded-full h-10 w-10 md:h-12 md:w-12"
           >
             <PhoneOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
