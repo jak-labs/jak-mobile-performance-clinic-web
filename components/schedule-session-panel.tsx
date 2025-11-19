@@ -211,7 +211,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
   return (
     <div
       className={`relative transition-all duration-300 ease-in-out ${
-        isOpen ? "w-[40%]" : "w-0"
+        isOpen ? "w-full md:w-[40%]" : "w-0"
       } border-l border-border bg-muted`}
     >
       {isOpen && (
@@ -219,21 +219,21 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
           variant="ghost"
           size="icon"
           onClick={onClose}
-          className="absolute left-0 -translate-x-1/2 top-1/2 -translate-y-1/2 z-50 h-16 w-10 rounded-full border-2 border-border bg-background shadow-lg hover:bg-background hover:shadow-xl transition-all"
+          className="absolute right-4 md:left-0 md:-translate-x-1/2 top-4 md:top-1/2 md:-translate-y-1/2 z-50 h-10 w-10 md:h-16 md:w-10 rounded-full border-2 border-border bg-background shadow-lg hover:bg-background hover:shadow-xl transition-all"
         >
           <ChevronRight className="h-5 w-5" />
         </Button>
       )}
 
       <div className="h-full flex flex-col">
-        <div className="sticky top-0 z-10 bg-muted border-b border-border/30 px-6 py-4">
+        <div className="sticky top-0 z-10 bg-muted border-b border-border/30 px-4 md:px-6 py-4 pr-16 md:pr-6 pt-16 md:pt-4">
           <div>
-            <h2 className="text-2xl font-bold text-foreground">Schedule Session</h2>
+            <h2 className="text-xl md:text-2xl font-bold text-foreground">Schedule Session</h2>
             <p className="text-sm text-muted-foreground mt-1">Create a new coaching session</p>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6">
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />

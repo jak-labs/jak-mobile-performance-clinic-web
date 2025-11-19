@@ -228,13 +228,13 @@ export default function SubjectsList() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <div className={`flex-1 transition-all duration-300 ${isAddClientOpen ? "w-[60%]" : "w-full"}`}>
-        <div className="min-h-screen bg-background p-8 overflow-y-auto">
+      <div className={`flex-1 transition-all duration-300 ${isAddClientOpen ? "w-[60%]" : "w-full"} flex flex-col`}>
+        <div className="flex-1 overflow-y-auto bg-background p-8">
           <div className="max-w-7xl mx-auto">
-            <div className="mb-8">
+            <div className="mb-8 pt-16 md:pt-8">
               <div className="flex items-center justify-between mb-4 pl-12">
                 <div>
-                  <h1 className="text-3xl font-bold text-foreground mb-2">Clients</h1>
+                  <h1 className="text-xl md:text-3xl font-bold text-foreground mb-2">Clients</h1>
                   <p className="text-muted-foreground">Manage and monitor your athletes</p>
                 </div>
                 <Button onClick={() => setIsAddClientOpen(true)} size="lg">

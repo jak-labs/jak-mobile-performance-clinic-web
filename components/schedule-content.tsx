@@ -102,11 +102,12 @@ export default function ScheduleContent() {
   const fetchSessions = async () => {
     setIsLoadingSessions(true)
     try {
-      // Calculate date range for the current month
+      // Calculate date range - fetch current month for calendar, but extend to 6 months ahead for upcoming sessions list
       const year = currentDate.getFullYear()
       const month = currentDate.getMonth()
       const startDate = new Date(year, month, 1).toISOString()
-      const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999).toISOString()
+      // Extend end date to 6 months ahead to ensure we have upcoming sessions for the list view
+      const endDate = new Date(year, month + 6, 0, 23, 59, 59, 999).toISOString()
 
       const response = await fetch(`/api/sessions?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`)
       
@@ -195,6 +196,78 @@ export default function ScheduleContent() {
     })
   }
 
+  const getUpcomingSessions = () => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    
+    return sessions
+      .filter((session) => {
+        if (!session || !session.date) {
+          return false
+        }
+        
+        let sessionDate: Date
+        if (session.date instanceof Date) {
+          sessionDate = session.date
+        } else if (typeof session.date === 'string') {
+          sessionDate = new Date(session.date)
+        } else {
+          return false
+        }
+        
+        if (isNaN(sessionDate.getTime())) {
+          return false
+        }
+        
+        const sessionDay = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate())
+        // Include sessions that are today or in the future, OR from the current month
+        const isTodayOrFuture = sessionDay >= today
+        const isCurrentMonth = sessionDate >= currentMonthStart && 
+                              sessionDate.getMonth() === now.getMonth() && 
+                              sessionDate.getFullYear() === now.getFullYear()
+        const isUpcoming = isTodayOrFuture || isCurrentMonth
+        
+        return isUpcoming
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.date).getTime()
+        const dateB = new Date(b.date).getTime()
+        return dateA - dateB
+      })
+  }
+
+  const formatSessionDate = (date: Date) => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const sessionDate = new Date(date)
+    sessionDate.setHours(0, 0, 0, 0)
+    
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    
+    if (sessionDate.getTime() === today.getTime()) {
+      return "Today"
+    } else if (sessionDate.getTime() === tomorrow.getTime()) {
+      return "Tomorrow"
+    } else {
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+      
+      const dayOfWeek = dayNames[date.getDay()]
+      const month = monthNames[date.getMonth()]
+      const day = date.getDate()
+      
+      // If within the next 7 days, show day name, otherwise show full date
+      const daysDiff = Math.floor((sessionDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      if (daysDiff <= 7) {
+        return `${dayOfWeek}, ${month} ${day}`
+      } else {
+        return `${month} ${day}, ${date.getFullYear()}`
+      }
+    }
+  }
+
   const navigateMonth = (direction: "prev" | "next") => {
     setCurrentDate((prev) => {
       const newDate = new Date(prev)
@@ -242,12 +315,14 @@ export default function ScheduleContent() {
       {/* Main content */}
       <div
         className={`flex-1 transition-all duration-300 ease-in-out ${
-          isSchedulePanelOpen || selectedSession ? "w-[60%]" : "w-full"
+          isSchedulePanelOpen || selectedSession 
+            ? "hidden md:flex w-[60%]" 
+            : "w-full"
         } flex flex-col`}
       >
         {/* User Role Header - Show at the very top, above everything */}
-        <div className="p-3 pl-20 pt-4">
-          <h2 className="text-xl font-bold text-foreground">
+        <div className="p-3 md:pl-20 pt-20 md:pt-4">
+          <h2 className="text-lg md:text-xl font-bold text-foreground">
             {userFirstName 
               ? `${isCoach ? "JAK Coach" : "JAK Member"}: ${userFirstName}`
               : isCoach 
@@ -257,117 +332,187 @@ export default function ScheduleContent() {
         </div>
         
         {/* Header */}
-        <div className="p-3 pl-20 flex flex-col flex-1 overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">
+        <div className="px-3 md:pl-20 pb-3 flex flex-col flex-1 overflow-hidden">
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-lg md:text-2xl font-bold text-foreground truncate">
                 {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
               </h1>
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={() => navigateMonth("prev")}>
-                <ChevronLeft className="size-4" />
+            <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+              <Button variant="outline" size="icon" className="h-8 w-8 md:h-10 md:w-10" onClick={() => navigateMonth("prev")}>
+                <ChevronLeft className="size-3 md:size-4" />
               </Button>
-              <Button variant="outline" size="icon" onClick={() => navigateMonth("next")}>
-                <ChevronRight className="size-4" />
+              <Button variant="outline" size="icon" className="h-8 w-8 md:h-10 md:w-10" onClick={() => navigateMonth("next")}>
+                <ChevronRight className="size-3 md:size-4" />
               </Button>
               {isCoach && (
-                <Button onClick={handleOpenSchedulePanel} size="default" className="gap-2 ml-2">
-                  <Plus className="size-4" />
-                  Schedule
+                <Button onClick={handleOpenSchedulePanel} size="sm" className="gap-1 md:gap-2 text-xs md:text-sm h-8 md:h-10 px-2 md:px-4">
+                  <Plus className="size-3 md:size-4" />
+                  <span className="hidden sm:inline">Schedule</span>
                 </Button>
               )}
             </div>
           </div>
 
-          {/* Calendar */}
+          {/* Calendar / Sessions List */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <h2 className="text-lg font-semibold text-foreground mb-3">Performance Clinic Calendar</h2>
+            <h2 className="text-base md:text-lg font-semibold text-foreground mb-3">Performance Clinic Calendar</h2>
 
-            {/* Legend */}
-            <div className="flex gap-4 mb-2">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                <span className="text-xs text-muted-foreground">1:1 Session</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span className="text-xs text-muted-foreground">Group Session</span>
-              </div>
+            {/* Mobile: Upcoming Sessions List */}
+            <div className="block md:hidden flex-1 min-h-0 overflow-hidden">
+              {isLoadingSessions ? (
+                <div className="flex items-center justify-center flex-1">
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Loading sessions...</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto">
+                  {(() => {
+                    const upcomingSessions = getUpcomingSessions()
+                    if (upcomingSessions.length === 0) {
+                      return (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground mb-2">No upcoming sessions</p>
+                            {sessions.length > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                {sessions.length} total session{sessions.length !== 1 ? 's' : ''} found
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    }
+                    return (
+                      <div className="space-y-3 pb-4">
+                        {upcomingSessions.map((session) => {
+                          const sessionDate = new Date(session.date)
+                          return (
+                            <button
+                              key={session.id}
+                              onClick={() => handleSelectSession(session)}
+                              className="w-full text-left p-4 rounded-lg border border-border bg-card hover:bg-accent transition-colors"
+                            >
+                              <div className="flex items-start gap-3">
+                                <div
+                                  className={`w-3 h-3 rounded-full flex-shrink-0 mt-1 ${
+                                    session.type === "1:1" ? "bg-blue-500" : "bg-purple-500"
+                                  }`}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-sm font-semibold text-foreground">
+                                      {formatSessionDate(sessionDate)}
+                                    </span>
+                                    <span className="text-sm text-muted-foreground">•</span>
+                                    <span className="text-sm text-muted-foreground">{session.time}</span>
+                                  </div>
+                                  <h3 className="text-base font-medium text-foreground mb-1">{session.title}</h3>
+                                  <p className="text-xs text-muted-foreground">
+                                    {session.type === "1:1" ? "1:1 Session" : "Group Session"}
+                                  </p>
+                                </div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
             </div>
 
-            {/* Calendar Grid */}
-            {isLoadingSessions ? (
-              <div className="flex items-center justify-center flex-1">
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">Loading sessions...</p>
+            {/* Desktop: Calendar Grid */}
+            <div className="hidden md:flex flex-col flex-1 min-h-0 overflow-hidden">
+              {/* Legend */}
+              <div className="flex gap-4 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="text-xs text-muted-foreground">1:1 Session</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span className="text-xs text-muted-foreground">Group Session</span>
                 </div>
               </div>
-            ) : (
-            <div className="grid grid-cols-7 auto-rows-fr gap-px flex-1 min-h-0 bg-border/30 rounded-lg overflow-hidden">
-              {/* Day headers */}
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                <div
-                  key={day}
-                  className="text-center font-semibold text-xs text-muted-foreground py-0.5 bg-muted/50 flex items-center justify-center"
-                >
-                  {day}
+
+              {/* Calendar Grid */}
+              {isLoadingSessions ? (
+                <div className="flex items-center justify-center flex-1">
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Loading sessions...</p>
+                  </div>
                 </div>
-              ))}
-
-              {/* Empty cells for days before month starts */}
-              {emptyDays.map((_, index) => (
-                <div key={`empty-${index}`} className="bg-muted/20" />
-              ))}
-
-              {/* Calendar days */}
-              {days.map((day) => {
-                const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day)
-                const daySessions = getSessionsForDate(date)
-                const isToday =
-                  date.getDate() === new Date().getDate() &&
-                  date.getMonth() === new Date().getMonth() &&
-                  date.getFullYear() === new Date().getFullYear()
-
-                const visibleSessions = daySessions.slice(0, 4)
-                const remainingSessions = daySessions.length - visibleSessions.length
-
-                return (
-                  <div
-                    key={day}
-                    className={`p-1.5 flex flex-col overflow-hidden ${isToday ? "bg-primary/5" : "bg-background"}`}
-                  >
-                    <div className={`text-xs font-semibold mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+              ) : (
+                <div className="grid grid-cols-7 auto-rows-fr gap-px flex-1 min-h-0 bg-border/30 rounded-lg overflow-hidden">
+                  {/* Day headers */}
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <div
+                      key={day}
+                      className="text-center font-semibold text-xs text-muted-foreground py-0.5 bg-muted/50 flex items-center justify-center"
+                    >
                       {day}
                     </div>
-                    <div className="space-y-0.5 overflow-hidden flex-1">
-                      {visibleSessions.map((session) => (
-                        <button
-                          key={session.id}
-                          onClick={() => handleSelectSession(session)}
-                          className="w-full text-left px-1.5 py-0.5 rounded text-[11px] transition-colors hover:opacity-80 flex items-center gap-1.5 group"
-                        >
-                          <div
-                            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                              session.type === "1:1" ? "bg-blue-500" : "bg-purple-500"
-                            }`}
-                          />
-                          <span className="text-muted-foreground flex-shrink-0">{session.time}</span>
-                          <span className="truncate font-medium text-foreground">{session.title}</span>
-                        </button>
-                      ))}
-                      {remainingSessions > 0 && (
-                        <div className="text-[10px] text-muted-foreground px-1.5 py-0.5">
-                          {remainingSessions} more event{remainingSessions > 1 ? "s" : ""}...
+                  ))}
+
+                  {/* Empty cells for days before month starts */}
+                  {emptyDays.map((_, index) => (
+                    <div key={`empty-${index}`} className="bg-muted/20" />
+                  ))}
+
+                  {/* Calendar days */}
+                  {days.map((day) => {
+                    const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day)
+                    const daySessions = getSessionsForDate(date)
+                    const isToday =
+                      date.getDate() === new Date().getDate() &&
+                      date.getMonth() === new Date().getMonth() &&
+                      date.getFullYear() === new Date().getFullYear()
+
+                    const visibleSessions = daySessions.slice(0, 4)
+                    const remainingSessions = daySessions.length - visibleSessions.length
+
+                    return (
+                      <div
+                        key={day}
+                        className={`p-1.5 flex flex-col overflow-hidden ${isToday ? "bg-primary/5" : "bg-background"}`}
+                      >
+                        <div className={`text-xs font-semibold mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                          {day}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+                        <div className="space-y-0.5 overflow-hidden flex-1">
+                          {visibleSessions.map((session) => (
+                            <button
+                              key={session.id}
+                              onClick={() => handleSelectSession(session)}
+                              className="w-full text-left px-1.5 py-0.5 rounded text-[11px] transition-colors hover:opacity-80 flex items-center gap-1.5 group"
+                            >
+                              <div
+                                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                  session.type === "1:1" ? "bg-blue-500" : "bg-purple-500"
+                                }`}
+                              />
+                              <span className="text-muted-foreground flex-shrink-0">{session.time}</span>
+                              <span className="truncate font-medium text-foreground">{session.title}</span>
+                            </button>
+                          ))}
+                          {remainingSessions > 0 && (
+                            <div className="text-[10px] text-muted-foreground px-1.5 py-0.5">
+                              {remainingSessions} more event{remainingSessions > 1 ? "s" : ""}...
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-            )}
           </div>
         </div>
       </div>

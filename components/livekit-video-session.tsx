@@ -576,7 +576,7 @@ function RoomContent({
 
       case 'default':
       default:
-        // Default layout: if coach viewing, show participants big and coach small; otherwise coach big
+        // Default layout: both boxes same size, side by side, centered
         // If only one participant total, don't show small boxes (no duplicates)
         const totalParticipants = participants.length
         const isCoachViewing = isCoach && coachParticipant
@@ -587,13 +587,13 @@ function RoomContent({
             <div className="h-full w-full flex items-center justify-center gap-2 md:gap-4 p-2 md:p-4">
               {/* Participants - same size as coach */}
               {otherParticipants.length > 0 && (
-                <div className="w-full md:w-1/2 max-w-md">
+                <div className="w-full md:w-1/2 flex-shrink-0">
                   {renderParticipantTile(otherParticipants[0], false)}
                 </div>
               )}
               {/* Coach - same size as participant (only if more than 1 participant total) */}
               {coachParticipant && totalParticipants > 1 && (
-                <div className="w-full md:w-1/2 max-w-md">
+                <div className="w-full md:w-1/2 flex-shrink-0">
                   {renderParticipantTile(coachParticipant, false)}
                 </div>
               )}
@@ -605,13 +605,13 @@ function RoomContent({
             <div className="h-full w-full flex items-center justify-center gap-2 md:gap-4 p-2 md:p-4">
               {/* Coach - same size as participants */}
               {coachParticipant && (
-                <div className="w-full md:w-1/2 max-w-md">
+                <div className="w-full md:w-1/2 flex-shrink-0">
                   {renderParticipantTile(coachParticipant, false)}
                 </div>
               )}
               {/* Other participants - same size as coach (only if more than 1 participant total) */}
               {otherParticipants.length > 0 && totalParticipants > 1 && (
-                <div className="w-full md:w-1/2 max-w-md">
+                <div className="w-full md:w-1/2 flex-shrink-0">
                   {renderParticipantTile(otherParticipants[0], false)}
                 </div>
               )}
