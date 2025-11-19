@@ -229,21 +229,24 @@ export default function SubjectsList() {
   return (
     <div className="flex h-screen overflow-hidden">
       <div className={`flex-1 transition-all duration-300 ${isAddClientOpen ? "w-[60%]" : "w-full"} flex flex-col`}>
-        <div className="flex-1 overflow-y-auto bg-background p-8">
+        <div className="flex-1 overflow-y-auto bg-background p-3 md:p-8">
           <div className="max-w-7xl mx-auto">
             <div className="mb-8 pt-16 md:pt-8">
-              <div className="flex items-center justify-between mb-4 pl-12">
+              <div className="flex items-center justify-between mb-4 px-3 md:pl-12">
                 <div>
                   <h1 className="text-xl md:text-3xl font-bold text-foreground mb-2">Clients</h1>
                   <p className="text-muted-foreground">Manage and monitor your athletes</p>
                 </div>
-                <Button onClick={() => setIsAddClientOpen(true)} size="lg">
+                <Button onClick={() => setIsAddClientOpen(true)} size="lg" className="hidden sm:flex">
                   <Plus className="mr-2 h-5 w-5" />
                   Add Client
                 </Button>
+                <Button onClick={() => setIsAddClientOpen(true)} size="icon" className="sm:hidden">
+                  <Plus className="h-5 w-5" />
+                </Button>
               </div>
 
-              <div className="relative max-w-md pl-12">
+              <div className="relative max-w-md px-3 md:pl-12">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   type="text"
@@ -267,8 +270,8 @@ export default function SubjectsList() {
             ) : (
               <>
                 {/* My Clients Section */}
-                <div className="mb-8">
-                  <h2 className="text-2xl font-semibold text-foreground mb-4">My Clients</h2>
+                <div className="mb-8 px-3 md:px-0">
+                  <h2 className="text-xl md:text-2xl font-semibold text-foreground mb-4">My Clients</h2>
                   {filteredSubjects.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {filteredSubjects.map((subject) => (
@@ -328,8 +331,8 @@ export default function SubjectsList() {
 
                 {/* Un-Assigned Clients Section */}
                 {filteredUnassigned.length > 0 && (
-                  <div className="mb-8">
-                    <h2 className="text-2xl font-semibold text-foreground mb-4">Un-Assigned Clients</h2>
+                  <div className="mb-8 px-3 md:px-0">
+                    <h2 className="text-xl md:text-2xl font-semibold text-foreground mb-4">Un-Assigned Clients</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {filteredUnassigned.map((subject) => (
                         <Card key={subject.id} className="p-6 border-border/50 bg-card">

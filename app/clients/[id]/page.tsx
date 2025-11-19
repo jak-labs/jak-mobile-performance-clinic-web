@@ -307,21 +307,21 @@ export default function ClientPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="p-8 pl-20">
+    <div className="h-screen overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-y-auto bg-background p-3 md:p-8 md:pl-20">
         <div className="max-w-7xl mx-auto">
           {/* Back Button */}
-          <Button variant="ghost" onClick={() => router.push("/clients")} className="mb-6">
+          <Button variant="ghost" onClick={() => router.push("/clients")} className="mb-6 pt-16 md:pt-0">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Clients
           </Button>
 
           {/* Client Header */}
-          <Card className="p-8 mb-6">
-            <div className="flex items-start gap-6">
-              <Avatar className="h-24 w-24">
+          <Card className="p-4 md:p-8 mb-6">
+            <div className="flex flex-col md:flex-row items-start gap-4 md:gap-6">
+              <Avatar className="h-16 w-16 md:h-24 md:w-24">
                 <AvatarImage src={client.avatar || "/placeholder.svg"} alt={client.name} />
-                <AvatarFallback className="text-2xl font-semibold">
+                <AvatarFallback className="text-xl md:text-2xl font-semibold">
                   {client.name
                     .split(" ")
                     .map((n) => n[0])
@@ -329,11 +329,11 @@ export default function ClientPage() {
                 </AvatarFallback>
               </Avatar>
 
-              <div className="flex-1">
+              <div className="flex-1 w-full">
                 <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h1 className="text-3xl font-bold mb-2">{client.name}</h1>
-                    <p className="text-muted-foreground text-lg mb-3">
+                  <div className="flex-1 min-w-0">
+                    <h1 className="text-xl md:text-3xl font-bold mb-2">{client.name}</h1>
+                    <p className="text-muted-foreground text-sm md:text-lg mb-3">
                       {client.age} years • {client.sport}
                     </p>
                     <Badge variant="outline" className={getStatusColor(client.status)}>
@@ -341,24 +341,24 @@ export default function ClientPage() {
                     </Badge>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-shrink-0">
                     <Button variant="outline" size="icon">
                       <Mail className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">{client.email}</span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                  <div className="flex items-center gap-2 text-xs md:text-sm">
+                    <Mail className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-muted-foreground truncate">{client.email}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2 text-xs md:text-sm">
+                    <Calendar className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground flex-shrink-0" />
                     <span className="text-muted-foreground">Joined {client.joinDate}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2 text-xs md:text-sm">
+                    <Clock className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground flex-shrink-0" />
                     <span className="text-muted-foreground">Last session: {client.lastSession}</span>
                   </div>
                 </div>
@@ -367,60 +367,60 @@ export default function ClientPage() {
           </Card>
 
           {/* Quick Stats */}
-          <div className="grid grid-cols-4 gap-6 mb-6">
-            <Card className="p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-primary/10 rounded-lg">
-                  <Activity className="h-5 w-5 text-primary" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-6">
+            <Card className="p-3 md:p-6">
+              <div className="flex items-center gap-2 md:gap-3 mb-2">
+                <div className="p-1.5 md:p-2 bg-primary/10 rounded-lg">
+                  <Activity className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                 </div>
-                <h3 className="font-semibold">Total Sessions</h3>
+                <h3 className="font-semibold text-xs md:text-base">Total Sessions</h3>
               </div>
-              <p className="text-3xl font-bold">{client.totalSessions}</p>
+              <p className="text-xl md:text-3xl font-bold">{client.totalSessions}</p>
             </Card>
 
-            <Card className="p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-blue-500/10 rounded-lg">
-                  <Calendar className="h-5 w-5 text-blue-600" />
+            <Card className="p-3 md:p-6">
+              <div className="flex items-center gap-2 md:gap-3 mb-2">
+                <div className="p-1.5 md:p-2 bg-blue-500/10 rounded-lg">
+                  <Calendar className="h-4 w-4 md:h-5 md:w-5 text-blue-600" />
                 </div>
-                <h3 className="font-semibold">Upcoming</h3>
+                <h3 className="font-semibold text-xs md:text-base">Upcoming</h3>
               </div>
-              <p className="text-3xl font-bold">{client.upcomingSessions}</p>
+              <p className="text-xl md:text-3xl font-bold">{client.upcomingSessions}</p>
             </Card>
 
-            <Card className="p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-green-500/10 rounded-lg">
-                  <TrendingUp className="h-5 w-5 text-green-600" />
+            <Card className="p-3 md:p-6">
+              <div className="flex items-center gap-2 md:gap-3 mb-2">
+                <div className="p-1.5 md:p-2 bg-green-500/10 rounded-lg">
+                  <TrendingUp className="h-4 w-4 md:h-5 md:w-5 text-green-600" />
                 </div>
-                <h3 className="font-semibold">Progress</h3>
+                <h3 className="font-semibold text-xs md:text-base">Progress</h3>
               </div>
-              <p className="text-3xl font-bold">+12%</p>
+              <p className="text-xl md:text-3xl font-bold">+12%</p>
             </Card>
 
-            <Card className="p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-purple-500/10 rounded-lg">
-                  <Target className="h-5 w-5 text-purple-600" />
+            <Card className="p-3 md:p-6">
+              <div className="flex items-center gap-2 md:gap-3 mb-2">
+                <div className="p-1.5 md:p-2 bg-purple-500/10 rounded-lg">
+                  <Target className="h-4 w-4 md:h-5 md:w-5 text-purple-600" />
                 </div>
-                <h3 className="font-semibold">Goals Met</h3>
+                <h3 className="font-semibold text-xs md:text-base">Goals Met</h3>
               </div>
-              <p className="text-3xl font-bold">8/10</p>
+              <p className="text-xl md:text-3xl font-bold">8/10</p>
             </Card>
           </div>
 
           {/* Tabs Content */}
           <Tabs defaultValue="notes" className="space-y-6">
-            <TabsList>
-              <TabsTrigger value="notes">Notes & Goals</TabsTrigger>
-              <TabsTrigger value="sessions">Sessions</TabsTrigger>
-              <TabsTrigger value="performance">Performance</TabsTrigger>
+            <TabsList className="w-full grid grid-cols-3">
+              <TabsTrigger value="notes" className="text-xs md:text-sm">Notes & Goals</TabsTrigger>
+              <TabsTrigger value="sessions" className="text-xs md:text-sm">Sessions</TabsTrigger>
+              <TabsTrigger value="performance" className="text-xs md:text-sm">Performance</TabsTrigger>
             </TabsList>
 
             <TabsContent value="notes" className="space-y-6">
               {/* Notes Section */}
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Notes</h2>
+              <Card className="p-4 md:p-6">
+                <h2 className="text-lg md:text-xl font-bold mb-4">Notes</h2>
 
                 <div className="mb-6">
                   <Textarea
@@ -463,8 +463,8 @@ export default function ClientPage() {
               </Card>
 
               {/* Goals Section */}
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Goals</h2>
+              <Card className="p-4 md:p-6">
+                <h2 className="text-lg md:text-xl font-bold mb-4">Goals</h2>
 
                 {/* Add New Goal */}
                 <div className="flex gap-2 mb-6">
@@ -513,8 +513,8 @@ export default function ClientPage() {
 
             <TabsContent value="sessions" className="space-y-6">
               {/* Upcoming Sessions */}
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Upcoming Sessions</h2>
+              <Card className="p-4 md:p-6">
+                <h2 className="text-lg md:text-xl font-bold mb-4">Upcoming Sessions</h2>
                 <div className="space-y-3">
                   {upcomingSessions.map((session) => (
                     <div
@@ -541,8 +541,8 @@ export default function ClientPage() {
               </Card>
 
               {/* Recent Sessions */}
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Recent Sessions</h2>
+              <Card className="p-4 md:p-6">
+                <h2 className="text-lg md:text-xl font-bold mb-4">Recent Sessions</h2>
                 <div className="space-y-3">
                   {recentSessions.map((session) => (
                     <div
@@ -575,8 +575,8 @@ export default function ClientPage() {
             </TabsContent>
 
             <TabsContent value="performance">
-              <Card className="p-6">
-                <h2 className="text-xl font-bold mb-4">Performance Metrics</h2>
+              <Card className="p-4 md:p-6">
+                <h2 className="text-lg md:text-xl font-bold mb-4">Performance Metrics</h2>
                 <p className="text-muted-foreground">Performance tracking and analytics coming soon...</p>
               </Card>
             </TabsContent>
