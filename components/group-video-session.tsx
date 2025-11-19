@@ -73,10 +73,11 @@ export default function GroupVideoSession({ participants }: GroupVideoSessionPro
         </div>
 
         <div 
-          className="absolute bottom-8 md:bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-background/95 backdrop-blur-sm px-6 py-3 rounded-full border shadow-lg"
+          className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3 bg-background/95 backdrop-blur-sm px-6 py-3 rounded-full border shadow-lg"
           style={{ 
-            bottom: 'max(2rem, calc(2rem + env(safe-area-inset-bottom, 0)))',
-            marginBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0.5rem))'
+            bottom: 'max(3.5rem, calc(3.5rem + env(safe-area-inset-bottom, 0)))',
+            marginBottom: 'max(2rem, env(safe-area-inset-bottom, 2rem))',
+            paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))'
           }}
         >
           <Button

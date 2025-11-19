@@ -708,9 +708,9 @@ function RoomContent({
         <div 
           className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 px-4 md:px-6 py-2.5 md:py-3 rounded-full z-50 max-w-[calc(100vw-2rem)] md:max-w-none bg-white shadow-lg"
           style={{ 
-            paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0.75rem))', 
-            marginBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))',
-            bottom: 'max(2rem, calc(2rem + env(safe-area-inset-bottom, 0)))'
+            paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))', 
+            marginBottom: 'max(2rem, env(safe-area-inset-bottom, 2rem))',
+            bottom: 'max(3.5rem, calc(3.5rem + env(safe-area-inset-bottom, 0)))'
           }}
         >
           <button
