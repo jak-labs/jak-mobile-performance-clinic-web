@@ -862,9 +862,23 @@ function RoomContent({
       case 'spotlight':
         // Spotlight layout: use LiveKit's FocusLayoutContainer with CarouselLayout and FocusLayout
         // Based on: https://github.com/livekit/components-js/blob/main/packages/react/src/prefabs/VideoConference.tsx
-        const spotlightParticipant = spotlightParticipantId
-          ? participants.find((p) => p.identity === spotlightParticipantId)
-          : otherParticipants[0] || coachParticipant
+        // Priority: 1. Current logged-in user (localParticipant), 2. Manually selected (spotlightParticipantId), 3. Other participants, 4. Coach
+        let spotlightParticipant: typeof participants[0] | undefined
+        
+        // First priority: current logged-in user (local participant)
+        if (localParticipant?.identity) {
+          spotlightParticipant = participants.find((p) => p.identity === localParticipant.identity)
+        }
+        
+        // Second priority: manually selected participant
+        if (!spotlightParticipant && spotlightParticipantId) {
+          spotlightParticipant = participants.find((p) => p.identity === spotlightParticipantId)
+        }
+        
+        // Third priority: other participants or coach
+        if (!spotlightParticipant) {
+          spotlightParticipant = otherParticipants[0] || coachParticipant
+        }
 
         if (!spotlightParticipant) {
           return <div className="h-full w-full flex items-center justify-center text-white">No participants</div>
@@ -921,7 +935,9 @@ function RoomContent({
                       if (!trackRef) return <ParticipantTile />
                       const participant = trackRef.participant
                       const info = participantInfo[participant.identity]
-                      const displayName = formatParticipantName(info, participant as typeof participants[0])
+                      // Find the participant in the participants array to get the correct type
+                      const participantFromList = participants.find(p => p.identity === participant.identity)
+                      const displayName = formatParticipantName(info, participantFromList || participants[0])
                       
                       return (
                         <div className="relative h-full w-full">
@@ -1168,7 +1184,7 @@ function RoomContent({
         </div>
 
         {/* Session info - Clean, minimal badges */}
-        <div className="absolute top-4 md:top-6 left-4 md:left-6 bg-black/30 backdrop-blur-sm px-3 md:px-4 py-2 md:py-2.5 rounded-xl z-10 border border-white/10">
+        <div className="absolute top-4 md:top-6 right-4 md:right-6 bg-black/30 backdrop-blur-sm px-3 md:px-4 py-2 md:py-2.5 rounded-xl z-10 border border-white/10">
           <p className="text-[7px] md:text-[8px] text-white/60 uppercase tracking-wider mb-0.5">Session Duration</p>
           <p className="text-[9px] md:text-[11px] font-mono font-semibold text-white mb-1">{sessionDuration}</p>
           {/* Connected status - smaller, inside Session Duration box */}
