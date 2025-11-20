@@ -296,7 +296,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                 </RadioGroup>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="date">Date *</Label>
                   <Input
@@ -305,6 +305,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                     value={formData.date}
                     onChange={(e) => handleInputChange("date", e.target.value)}
                     required
+                    className="w-full"
                   />
                 </div>
                 <div className="space-y-2">
