@@ -20,6 +20,7 @@ import {
   useParticipants,
   ParticipantContext,
   TrackRefContext,
+  GridLayout,
 } from "@livekit/components-react"
 import "@livekit/components-styles"
 import { Track, TrackPublication } from "livekit-client"
@@ -754,30 +755,31 @@ function RoomContent({
         </div>
       )
     } else {
-      // Small boxes: card structure with video on top, name below
+      // Rectangular boxes: video fills available space, name overlay at bottom
       return (
         <div
           key={participant.identity}
-          className="flex flex-col bg-black rounded-lg overflow-hidden"
+          className="relative bg-black rounded-lg overflow-hidden w-full h-full"
+          style={{ width: '100%', height: '100%', minWidth: 0, maxWidth: '100%' }}
         >
-          {/* Video section */}
-          <div className="relative aspect-video w-full">
+          {/* Video section - fills available space */}
+          <div className="relative w-full h-full">
             {trackRef ? (
               <TrackRefContext.Provider value={trackRef}>
-                <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
+                <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" style={{ width: '100%', height: '100%' }} />
               </TrackRefContext.Provider>
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
-                  <span className="text-lg font-medium text-white">
+                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
+                  <span className="text-2xl font-medium text-white">
                     {firstLetter}
                   </span>
                 </div>
               </div>
             )}
           </div>
-          {/* Name section */}
-          <div className="bg-black/90 px-2 py-1.5">
+          {/* Name overlay at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-2 py-1.5">
             <p className="font-medium text-white text-xs md:text-sm text-center truncate">{displayName}</p>
           </div>
         </div>
@@ -801,28 +803,43 @@ function RoomContent({
           )
         }
         
+        // Manual grid with equal-sized tiles - use CSS grid for proper layout
         // Calculate grid columns based on participant count
-        let gridColsClass = 'grid-cols-2' // Default for 2 participants (side by side)
-        let useFullHeight = false
-        
-        if (participantCount === 2) {
-          gridColsClass = 'grid-cols-2' // Side by side - full height
-          useFullHeight = true
+        let gridCols = 2 // Default: 2 columns
+        if (participantCount === 1) {
+          gridCols = 1
+        } else if (participantCount === 2) {
+          gridCols = 2 // 2 participants: side by side
         } else if (participantCount <= 4) {
-          gridColsClass = 'grid-cols-2' // 2x2 grid
+          gridCols = 2 // 3-4 participants: 2x2 grid
+        } else if (participantCount <= 6) {
+          gridCols = 3 // 5-6 participants: 3 columns
         } else if (participantCount <= 9) {
-          gridColsClass = 'grid-cols-3' // 3x3 grid
-        } else if (participantCount <= 16) {
-          gridColsClass = 'grid-cols-4' // 4x4 grid
+          gridCols = 3 // 7-9 participants: 3x3 grid
         } else {
-          gridColsClass = 'grid-cols-5' // 5x5+ grid for more participants
+          gridCols = 4 // 10+ participants: 4 columns
         }
         
         return (
-          <div className={`h-full w-full p-2 md:p-4 grid ${gridColsClass} gap-2 md:gap-4 ${useFullHeight ? '' : 'overflow-y-auto'}`}>
+          <div 
+            className="h-full w-full p-2 md:p-4 overflow-y-auto"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+              gap: '0.5rem',
+              alignContent: 'start',
+            }}
+          >
             {participants.map((participant) => (
-              <div key={participant.identity} className={useFullHeight ? 'h-full' : ''}>
-                {renderParticipantTile(participant, useFullHeight)}
+              <div 
+                key={participant.identity} 
+                className="w-full"
+                style={{
+                  aspectRatio: '16/9',
+                  minWidth: 0,
+                }}
+              >
+                {renderParticipantTile(participant, false)}
               </div>
             ))}
           </div>
@@ -943,7 +960,7 @@ function RoomContent({
         }`}
       >
         {/* Main video area - Dynamic layout based on layoutMode */}
-        <div className="h-full min-h-0 relative overflow-hidden bg-black">
+        <div className="h-full min-h-0 relative overflow-hidden bg-black" style={{ display: 'flex', flexDirection: 'column' }}>
           {renderLayout()}
         </div>
 

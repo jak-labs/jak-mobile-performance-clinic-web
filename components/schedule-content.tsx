@@ -231,9 +231,10 @@ export default function ScheduleContent() {
         return isUpcoming
       })
       .sort((a, b) => {
+        // Sort in descending order (most recent first)
         const dateA = new Date(a.date).getTime()
         const dateB = new Date(b.date).getTime()
-        return dateA - dateB
+        return dateB - dateA
       })
   }
 
