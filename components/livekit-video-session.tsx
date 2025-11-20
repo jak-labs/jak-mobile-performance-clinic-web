@@ -21,6 +21,8 @@ import {
   ParticipantContext,
   TrackRefContext,
   GridLayout,
+  FocusLayout,
+  FocusLayoutContainer,
 } from "@livekit/components-react"
 import "@livekit/components-styles"
 import { Track, TrackPublication } from "livekit-client"
@@ -179,12 +181,12 @@ function RoomContent({
   const getInitialLayout = (): LayoutMode => {
     if (sessionType === 'single') return 'one-on-one'
     if (sessionType === 'group') return 'grid'
-    return 'default'
+    return 'grid'
   }
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
     if (sessionType === 'single') return 'one-on-one'
     if (sessionType === 'group') return 'grid'
-    return 'default'
+    return 'grid'
   })
   const [spotlightParticipantId, setSpotlightParticipantId] = useState<string | null>(null)
   const { data: session } = useSession()
@@ -196,7 +198,7 @@ function RoomContent({
     } else if (sessionType === 'group') {
       setLayoutMode('grid')
     } else {
-      setLayoutMode('default')
+      setLayoutMode('grid')
     }
   }, [sessionType])
   const [isCoach, setIsCoach] = useState<boolean | null>(null)
@@ -822,32 +824,23 @@ function RoomContent({
         
         // On mobile: stack vertically (1 column), on desktop: use calculated grid
         return (
-          <div 
-            className="h-full w-full p-2 md:p-4 overflow-y-auto"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(1, 1fr)`,
-              gap: '0.5rem',
-              alignContent: 'start',
-            }}
-          >
+          <>
             <style dangerouslySetInnerHTML={{
               __html: `
+                .grid-layout-mobile-stack {
+                  display: grid;
+                  grid-template-columns: repeat(1, 1fr);
+                  gap: 0.5rem;
+                }
                 @media (min-width: 768px) {
-                  .grid-container-${gridCols} {
+                  .grid-layout-mobile-stack {
                     grid-template-columns: repeat(${gridCols}, 1fr) !important;
                   }
                 }
               `
             }} />
             <div 
-              className={`grid-container-${gridCols}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(1, 1fr)`,
-                gap: '0.5rem',
-                width: '100%',
-              }}
+              className="h-full w-full p-2 md:p-4 overflow-y-auto grid-layout-mobile-stack"
             >
               {participants.map((participant) => (
                 <div 
@@ -862,12 +855,12 @@ function RoomContent({
                 </div>
               ))}
             </div>
-          </div>
+          </>
         )
 
       case 'spotlight':
-        // Spotlight layout: one participant large, others small
-        // If only one participant total, don't show small boxes (no duplicates)
+        // Spotlight layout: use LiveKit's FocusLayout for the focused participant
+        // Based on: https://github.com/livekit/components-js/blob/main/packages/react/src/components/layout/FocusLayout.tsx
         const spotlightParticipant = spotlightParticipantId
           ? participants.find((p) => p.identity === spotlightParticipantId)
           : otherParticipants[0] || coachParticipant
@@ -876,19 +869,40 @@ function RoomContent({
           return <div className="h-full w-full flex items-center justify-center text-white">No participants</div>
         }
 
+        // Get track reference for the spotlight participant
+        const spotlightTrackRef = getTrackForParticipant(spotlightParticipant.identity)
+        
         const totalParticipantsSpotlight = participants.length
+        const otherParticipantsList = otherParticipants.filter((p) => p.identity !== spotlightParticipant.identity)
+        
         return (
           <div className="h-full w-full flex flex-col md:flex-row">
-            {/* Main spotlight video */}
-            <div className="flex-1 min-w-0" style={{ flex: '0 0 95%' }}>
-              {renderParticipantTile(spotlightParticipant, true)}
+            {/* Main spotlight video using FocusLayout */}
+            <div className="flex-1 min-w-0 h-full" style={{ flex: '0 0 70%' }}>
+              {spotlightTrackRef ? (
+                <div className="h-full w-full">
+                  <FocusLayout trackRef={spotlightTrackRef} className="h-full w-full" />
+                </div>
+              ) : (
+                // Fallback if no track available
+                renderParticipantTile(spotlightParticipant, true)
+              )}
             </div>
             {/* Small participant boxes (only if more than 1 participant total) */}
-            {otherParticipants.length > 0 && totalParticipantsSpotlight > 1 && (
-              <div className="md:w-40 md:flex-col md:gap-2 md:p-2 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
-                {otherParticipants
-                  .filter((p) => p.identity !== spotlightParticipant.identity)
-                  .map((participant) => renderParticipantTile(participant, false))}
+            {otherParticipantsList.length > 0 && totalParticipantsSpotlight > 1 && (
+              <div className="md:w-80 md:flex-col md:gap-3 md:p-3 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
+                {otherParticipantsList.map((participant) => {
+                  const participantTrackRef = getTrackForParticipant(participant.identity)
+                  return (
+                    <div key={participant.identity} className="md:w-full md:aspect-video">
+                      {participantTrackRef ? (
+                        <ParticipantTile trackRef={participantTrackRef} />
+                      ) : (
+                        renderParticipantTile(participant, false)
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -918,13 +932,11 @@ function RoomContent({
 
       case 'default':
       default:
-        // Default layout: both boxes same size, side by side, centered
-        // Always show at least one participant, even if alone
-        const totalParticipants = participants.length
-        const isCoachViewing = isCoach && coachParticipant
+        // Default mode removed - redirect to grid layout
+        // This handles any edge cases where default mode might still be set
+        const participantCountDefault = participants.length
         
-        // If only one participant, show them full screen
-        if (totalParticipants === 1 && participants[0]) {
+        if (participantCountDefault === 1 && participants[0]) {
           return (
             <div className="h-full w-full">
               {renderParticipantTile(participants[0], true)}
@@ -932,43 +944,54 @@ function RoomContent({
           )
         }
         
-        if (isCoachViewing) {
-          // Coach viewing: participants and coach same size, side by side, centered
-          return (
-            <div className="h-full w-full flex items-center justify-center gap-2 md:gap-4 p-2 md:p-4">
-              {/* Participants - same size as coach */}
-              {otherParticipants.length > 0 && (
-                <div className="w-full md:w-1/2 flex-shrink-0">
-                  {renderParticipantTile(otherParticipants[0], false)}
-                </div>
-              )}
-              {/* Coach - same size as participant */}
-              {coachParticipant && (
-                <div className="w-full md:w-1/2 flex-shrink-0">
-                  {renderParticipantTile(coachParticipant, false)}
-                </div>
-              )}
-            </div>
-          )
+        // Use grid layout as fallback
+        let gridColsDefault = 2
+        if (participantCountDefault === 2) {
+          gridColsDefault = 2
+        } else if (participantCountDefault <= 4) {
+          gridColsDefault = 2
+        } else if (participantCountDefault <= 6) {
+          gridColsDefault = 3
+        } else if (participantCountDefault <= 9) {
+          gridColsDefault = 3
         } else {
-          // Non-coach viewing: coach and participants same size, side by side, centered
-          return (
-            <div className="h-full w-full flex items-center justify-center gap-2 md:gap-4 p-2 md:p-4">
-              {/* Coach - same size as participants */}
-              {coachParticipant && (
-                <div className="w-full md:w-1/2 flex-shrink-0">
-                  {renderParticipantTile(coachParticipant, false)}
-                </div>
-              )}
-              {/* Other participants - same size as coach */}
-              {otherParticipants.length > 0 && (
-                <div className="w-full md:w-1/2 flex-shrink-0">
-                  {renderParticipantTile(otherParticipants[0], false)}
-                </div>
-              )}
-            </div>
-          )
+          gridColsDefault = 4
         }
+        
+        return (
+          <>
+            <style dangerouslySetInnerHTML={{
+              __html: `
+                .grid-layout-mobile-stack-default {
+                  display: grid;
+                  grid-template-columns: repeat(1, 1fr);
+                  gap: 0.5rem;
+                }
+                @media (min-width: 768px) {
+                  .grid-layout-mobile-stack-default {
+                    grid-template-columns: repeat(${gridColsDefault}, 1fr) !important;
+                  }
+                }
+              `
+            }} />
+            <div 
+              className="h-full w-full p-2 md:p-4 overflow-y-auto grid-layout-mobile-stack-default"
+            >
+              {participants.map((participant) => (
+                <div 
+                  key={participant.identity} 
+                  className="w-full"
+                  style={{
+                    aspectRatio: '16/9',
+                    minWidth: 0,
+                  }}
+                >
+                  {renderParticipantTile(participant, false)}
+                </div>
+              ))}
+            </div>
+          </>
+        )
     }
   }
 
@@ -1015,17 +1038,6 @@ function RoomContent({
                 >
                   <User className="h-4 w-4" />
                 </button>
-                <button
-                  onClick={() => setLayoutMode('default')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    layoutMode === 'default' 
-                      ? 'bg-white text-black' 
-                      : 'bg-transparent text-white hover:bg-white/20'
-                  }`}
-                  title="Default Layout"
-                >
-                  <Users className="h-4 w-4" />
-                </button>
               </>
             ) : (
               <>
@@ -1039,17 +1051,6 @@ function RoomContent({
                   title="Grid Layout"
                 >
                   <LayoutGrid className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => setLayoutMode('default')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    layoutMode === 'default' 
-                      ? 'bg-white text-black' 
-                      : 'bg-transparent text-white hover:bg-white/20'
-                  }`}
-                  title="Default Layout (Coach Big)"
-                >
-                  <Users className="h-4 w-4" />
                 </button>
               </>
             )}
