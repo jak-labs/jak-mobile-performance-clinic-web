@@ -122,7 +122,7 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
         <div className="sticky top-0 z-10 bg-muted border-b border-border/30 px-4 md:px-6 py-4 pr-16 md:pr-6 pt-16 md:pt-4">
           <h2 className="text-xl md:text-2xl font-bold text-foreground">{session.title}</h2>
           <Badge variant={session.type === "group" ? "default" : "secondary"} className="mt-2">
-            {session.type === "group" ? "Group Session" : "1:1 Session"}
+            {session.type === "group" ? "Virtual Group Session" : session.type === "mocap" ? "In-Person 1:1 Motion Capture Session" : "Virtual 1:1 Session"}
           </Badge>
         </div>
 

@@ -142,7 +142,7 @@ export default function ScheduleContent() {
           title: dbSession.title,
           date: sessionDate,
           time: timeString,
-          type: dbSession.session_type === "single" ? "1:1" : "group",
+          type: dbSession.session_type === "single" ? "1:1" : dbSession.session_type === "mocap" ? "mocap" : "group",
           clients: clients,
           link: `/session/${dbSession.session_id}`,
           status: dbSession.status || "scheduled",
@@ -413,7 +413,7 @@ export default function ScheduleContent() {
                                   </div>
                                   <h3 className="text-base font-medium text-foreground mb-1">{session.title}</h3>
                                   <p className="text-xs text-muted-foreground">
-                                    {session.type === "1:1" ? "1:1 Session" : "Group Session"}
+                                    {session.type === "1:1" ? "Virtual 1:1 Session" : session.type === "mocap" ? "In-Person 1:1 Motion Capture Session" : "Virtual Group Session"}
                                   </p>
                                 </div>
                               </div>
@@ -433,11 +433,15 @@ export default function ScheduleContent() {
               <div className="flex gap-4 mb-2">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span className="text-xs text-muted-foreground">1:1 Session</span>
+                  <span className="text-xs text-muted-foreground">Virtual 1:1 Session</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-purple-500" />
-                  <span className="text-xs text-muted-foreground">Group Session</span>
+                  <span className="text-xs text-muted-foreground">Virtual Group Session</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-orange-500" />
+                  <span className="text-xs text-muted-foreground">In-Person Motion Capture</span>
                 </div>
               </div>
 
@@ -495,7 +499,7 @@ export default function ScheduleContent() {
                             >
                               <div
                                 className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                  session.type === "1:1" ? "bg-blue-500" : "bg-purple-500"
+                                  session.type === "1:1" ? "bg-blue-500" : session.type === "mocap" ? "bg-orange-500" : "bg-purple-500"
                                 }`}
                               />
                               <span className="text-muted-foreground flex-shrink-0">{session.time}</span>

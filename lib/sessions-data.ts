@@ -3,7 +3,7 @@ export interface Session {
   title: string
   date: Date
   time: string
-  type: "1:1" | "group"
+  type: "1:1" | "group" | "mocap"
   clients: string[]
   link: string
   status: "scheduled" | "completed" | "cancelled"

@@ -63,6 +63,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (sessionType === 'mocap' && subjectIds.length !== 1) {
+      return NextResponse.json(
+        { error: 'In-Person 1:1 Motion Capture sessions must have exactly one client' },
+        { status: 400 }
+      );
+    }
+
     if (sessionType === 'group' && subjectIds.length < 2) {
       return NextResponse.json(
         { error: 'Group sessions must have at least two clients' },
@@ -114,8 +121,8 @@ export async function POST(req: NextRequest) {
       livekit_room_name: livekitRoomName,
     };
 
-    // Add subject_id for single sessions, subject_ids for group sessions
-    if (sessionType === 'single') {
+    // Add subject_id for single/mocap sessions, subject_ids for group sessions
+    if (sessionType === 'single' || sessionType === 'mocap') {
       sessionData.subject_id = subjectIds[0];
     } else {
       sessionData.subject_ids = subjectIds;
@@ -152,8 +159,8 @@ export async function POST(req: NextRequest) {
       console.error('Error fetching coach profile for email:', error);
     }
 
-    // Get all subject IDs (handle both single and group sessions)
-    const allSubjectIds = sessionType === 'single' ? [subjectIds[0]] : subjectIds;
+    // Get all subject IDs (handle single, mocap, and group sessions)
+    const allSubjectIds = (sessionType === 'single' || sessionType === 'mocap') ? [subjectIds[0]] : subjectIds;
 
     // Send emails to all members
     const emailResults = await Promise.allSettled(
@@ -167,7 +174,8 @@ export async function POST(req: NextRequest) {
           }
 
           const memberName = subject.name || subject.full_name || subject.f_name || 'Member';
-          const sessionTypeText = sessionType === 'single' ? '1:1 Session' : 'Group Session';
+          const sessionTypeText = sessionType === 'single' ? 'Virtual 1:1 Session' : sessionType === 'mocap' ? 'In-Person 1:1 Motion Capture Session' : 'Virtual Group Session';
+          const isMocapSession = sessionType === 'mocap';
 
           // Create email content
           const emailSubject = `New ${sessionTypeText} Scheduled: ${title}`;
@@ -199,6 +207,7 @@ export async function POST(req: NextRequest) {
                     ${notes ? `<p style="margin: 8px 0;"><strong>Notes:</strong> ${notes}</p>` : ''}
                   </div>
                   
+                  ${!isMocapSession ? `
                   <div style="text-align: center; margin: 30px 0;">
                     <a href="${sessionLink}" 
                        style="display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
@@ -210,6 +219,11 @@ export async function POST(req: NextRequest) {
                     Or copy and paste this link into your browser:<br>
                     <a href="${sessionLink}" style="color: #2563eb; word-break: break-all;">${sessionLink}</a>
                   </p>
+                  ` : `
+                  <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
+                    This is an in-person session. Your coach will start the session at the scheduled time.
+                  </p>
+                  `}
                 </div>
                 
                 <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
@@ -232,9 +246,9 @@ Session Details:
 - Duration: ${duration} minutes
 ${notes ? `- Notes: ${notes}` : ''}
 
-Join the session at: ${sessionLink}
+${!isMocapSession ? `Join the session at: ${sessionLink}
 
-This session is scheduled for ${formattedDate} at ${formattedTime}. You can access the session using the link above when it's time.
+This session is scheduled for ${formattedDate} at ${formattedTime}. You can access the session using the link above when it's time.` : `This is an in-person session. Your coach will start the session at the scheduled time.`}
           `;
 
           const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@api.jak-labs.com';
@@ -246,10 +260,10 @@ This session is scheduled for ${formattedDate} at ${formattedTime}. You can acce
 
           const calendarEvent = generateICS({
             summary: title,
-            description: `${sessionTypeText} with ${coachName}${notes ? `\n\nNotes: ${notes}` : ''}\n\nJoin session: ${sessionLink}`,
+            description: `${sessionTypeText} with ${coachName}${notes ? `\n\nNotes: ${notes}` : ''}${!isMocapSession ? `\n\nJoin session: ${sessionLink}` : '\n\nThis is an in-person session.'}`,
             startDate: sessionStartDate,
             endDate: sessionEndDate,
-            location: 'JAK Labs Video Session',
+            location: isMocapSession ? 'JAK Labs Motion Capture Studio' : 'JAK Labs Video Session',
             organizer: {
               name: coachName,
               email: session.user.email || fromEmail,
@@ -258,7 +272,7 @@ This session is scheduled for ${formattedDate} at ${formattedTime}. You can acce
               name: memberName,
               email: subject.email,
             },
-            url: sessionLink,
+            url: !isMocapSession ? sessionLink : undefined,
           });
 
           // Create multipart email with calendar attachment

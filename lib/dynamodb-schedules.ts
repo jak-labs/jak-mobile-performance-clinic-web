@@ -24,7 +24,7 @@ export interface ScheduleSession {
   session_id: string; // Unique session identifier
   subject_id?: string; // For 1:1 sessions
   subject_ids?: string[]; // For group sessions
-  session_type: "single" | "group";
+  session_type: "single" | "group" | "mocap";
   title: string;
   duration: number; // Duration in minutes
   notes?: string;

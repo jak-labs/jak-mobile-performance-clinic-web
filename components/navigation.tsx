@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { signOut, useSession } from "next-auth/react"
-import { Menu, LogOut } from "lucide-react"
+import { Menu, LogOut, Moon, Sun } from "lucide-react"
 import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import Image from "next/image"
 import { useV2 } from "@/lib/v2-context"
+import { useTheme } from "next-themes"
 
 const coachNavItems = [
   { name: "Schedule", href: "/" },
@@ -35,6 +36,13 @@ export default function Navigation() {
   const [isMember, setIsMember] = useState(false)
   const [unassignedCount, setUnassignedCount] = useState(0)
   const { v2Enabled, setV2Enabled } = useV2()
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  // Avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Fetch user groups to determine navigation items
   useEffect(() => {
@@ -149,8 +157,21 @@ export default function Navigation() {
               </ul>
             </nav>
 
-            {/* Sign out button section */}
-            <div className="p-4 border-t border-border/40">
+            {/* Theme toggle and Sign out section */}
+            <div className="p-4 border-t border-border/40 space-y-2">
+              {mounted && (
+                <button
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-base font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                >
+                  {theme === "dark" ? (
+                    <Sun className="size-5" />
+                  ) : (
+                    <Moon className="size-5" />
+                  )}
+                  {theme === "dark" ? "Light Mode" : "Dark Mode"}
+                </button>
+              )}
               <button
                 onClick={handleSignOut}
                 className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-base font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"

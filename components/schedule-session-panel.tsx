@@ -30,7 +30,7 @@ interface Client {
 export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: ScheduleSessionPanelProps) {
   const [formData, setFormData] = useState({
     title: "",
-    sessionType: "1:1",
+    sessionType: "virtual-1:1",
     date: "",
     time: "",
     duration: "60",
@@ -108,6 +108,16 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
       return
     }
 
+    // Handle "Start Now" option - use current time
+    let sessionTime = formData.time
+    let sessionDate = formData.date
+    
+    if (formData.time === "now") {
+      const now = new Date()
+      sessionTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+      sessionDate = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
+    }
+
     try {
       const response = await fetch("/api/sessions/create", {
         method: "POST",
@@ -116,10 +126,10 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
         },
         body: JSON.stringify({
           title: formData.title,
-          date: formData.date,
-          time: formData.time,
+          date: sessionDate,
+          time: sessionTime,
           duration: formData.duration,
-          sessionType: formData.sessionType === "1:1" ? "single" : "group",
+          sessionType: formData.sessionType === "virtual-1:1" ? "single" : formData.sessionType === "virtual-group" ? "group" : "mocap",
           subjectIds: formData.selectedClients,
           notes: formData.notes || undefined,
         }),
@@ -137,20 +147,20 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
         .map((client) => client.name)
 
       // Parse date and time to create a Date object for the callback
-      const [year, month, day] = formData.date.split("-").map(Number)
-      const [hours, minutes] = formData.time.split(":").map(Number)
-      const sessionDate = new Date(year, month - 1, day, hours, minutes)
+      const [year, month, day] = sessionDate.split("-").map(Number)
+      const [hours, minutes] = sessionTime.split(":").map(Number)
+      const sessionDateObj = new Date(year, month - 1, day, hours, minutes)
 
       // Format time for display (HH:MM)
-      const timeString = formData.time
+      const timeString = sessionTime
 
       // Use the session_id from the API response
       const newSession = {
         id: data.session_id,
         title: formData.title,
-        date: sessionDate,
+        date: sessionDateObj,
         time: timeString,
-        type: formData.sessionType as "1:1" | "group",
+        type: formData.sessionType === "virtual-1:1" ? "1:1" : formData.sessionType === "virtual-group" ? "group" : "mocap",
         clients: clientNames,
         link: `/session/${data.session_id}`,
         status: "scheduled" as const,
@@ -161,7 +171,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
       // Reset form
       setFormData({
         title: "",
-        sessionType: "1:1",
+        sessionType: "virtual-1:1",
         date: "",
         time: "",
         duration: "60",
@@ -183,8 +193,8 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
   }
 
   const toggleClient = (clientId: string) => {
-    if (formData.sessionType === "1:1") {
-      // For 1:1 sessions, replace the selection with the new client
+    if (formData.sessionType === "virtual-1:1" || formData.sessionType === "mocap-1:1") {
+      // For 1:1 sessions (virtual or mocap), replace the selection with the new client
       setFormData((prev) => ({
         ...prev,
         selectedClients: prev.selectedClients.includes(clientId) ? [] : [clientId],
@@ -265,16 +275,22 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                   value={formData.sessionType}
                   onValueChange={(value) => handleInputChange("sessionType", value)}
                 >
-                  <div className="flex items-center space-x-3 border border-border rounded-lg p-3">
-                    <RadioGroupItem value="1:1" id="one-on-one" />
-                    <Label htmlFor="one-on-one" className="flex-1 cursor-pointer">
-                      1:1 Session
+                  <div className="flex items-center space-x-3 border border-border dark:border-gray-400/50 rounded-lg p-3">
+                    <RadioGroupItem value="virtual-1:1" id="virtual-one-on-one" />
+                    <Label htmlFor="virtual-one-on-one" className="flex-1 cursor-pointer">
+                      Virtual 1:1 Session
                     </Label>
                   </div>
-                  <div className="flex items-center space-x-3 border border-border rounded-lg p-3">
-                    <RadioGroupItem value="group" id="group" />
-                    <Label htmlFor="group" className="flex-1 cursor-pointer">
-                      Group Session
+                  <div className="flex items-center space-x-3 border border-border dark:border-gray-400/50 rounded-lg p-3">
+                    <RadioGroupItem value="virtual-group" id="virtual-group" />
+                    <Label htmlFor="virtual-group" className="flex-1 cursor-pointer">
+                      Virtual Group Session
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-3 border border-border dark:border-gray-400/50 rounded-lg p-3">
+                    <RadioGroupItem value="mocap-1:1" id="mocap-one-on-one" />
+                    <Label htmlFor="mocap-one-on-one" className="flex-1 cursor-pointer">
+                      In-Person 1:1 Motion Capture Session
                     </Label>
                   </div>
                 </RadioGroup>
@@ -304,8 +320,16 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                     <SelectContent className="max-h-[300px]">
                       {(() => {
                         const timeOptions: Array<{ value: string; label: string }> = []
-                        for (let hour = 0; hour < 24; hour++) {
+                        
+                        // Add "Start Now" as first option
+                        timeOptions.push({ value: "now", label: "Start Now" })
+                        
+                        // Generate time options from 5am to 10pm (5:00 to 22:00)
+                        for (let hour = 5; hour <= 22; hour++) {
                           for (let minute = 0; minute < 60; minute += 15) {
+                            // Skip times after 10pm (22:00)
+                            if (hour === 22 && minute > 0) break
+                            
                             const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
                             const displayTime = new Date(`2000-01-01T${timeString}`).toLocaleTimeString('en-US', {
                               hour: 'numeric',
@@ -327,15 +351,20 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="duration">Duration (minutes) *</Label>
-                <Input
-                  id="duration"
-                  type="number"
-                  placeholder="60"
-                  value={formData.duration}
-                  onChange={(e) => handleInputChange("duration", e.target.value)}
-                  required
-                />
+                <Label>Duration *</Label>
+                <div className="flex flex-wrap gap-2">
+                  {[15, 30, 60, 90, 120].map((minutes) => (
+                    <Button
+                      key={minutes}
+                      type="button"
+                      variant={formData.duration === minutes.toString() ? "default" : "outline"}
+                      onClick={() => handleInputChange("duration", minutes.toString())}
+                      className="flex-1 min-w-[80px]"
+                    >
+                      {minutes} Min
+                    </Button>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -359,12 +388,14 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
               </div>
 
               <p className="text-sm text-muted-foreground">
-                {formData.sessionType === "1:1"
-                  ? "Select one client for this 1:1 session"
+                {formData.sessionType === "virtual-1:1" || formData.sessionType === "mocap-1:1"
+                  ? formData.sessionType === "mocap-1:1"
+                    ? "Select one client for this In-Person Motion Capture session"
+                    : "Select one client for this 1:1 session"
                   : "Select multiple clients for this group session"}
               </p>
 
-              <div className="space-y-2 max-h-64 overflow-y-auto border border-border rounded-lg p-3">
+              <div className="space-y-2 max-h-64 overflow-y-auto border border-border dark:border-gray-400/50 rounded-lg p-3">
                 {isLoadingClients ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -378,7 +409,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                   clients.map((client) => {
                     const isSelected = formData.selectedClients.includes(client.subject_id)
                     const isDisabled =
-                      formData.sessionType === "1:1" && formData.selectedClients.length > 0 && !isSelected
+                      (formData.sessionType === "virtual-1:1" || formData.sessionType === "mocap-1:1") && formData.selectedClients.length > 0 && !isSelected
 
                     return (
                       <div
