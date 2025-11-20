@@ -804,7 +804,7 @@ function RoomContent({
         }
         
         // Manual grid with equal-sized tiles - use CSS grid for proper layout
-        // Calculate grid columns based on participant count
+        // Calculate grid columns based on participant count (for desktop)
         let gridCols = 2 // Default: 2 columns
         if (participantCount === 1) {
           gridCols = 1
@@ -820,28 +820,48 @@ function RoomContent({
           gridCols = 4 // 10+ participants: 4 columns
         }
         
+        // On mobile: stack vertically (1 column), on desktop: use calculated grid
         return (
           <div 
             className="h-full w-full p-2 md:p-4 overflow-y-auto"
             style={{
               display: 'grid',
-              gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+              gridTemplateColumns: `repeat(1, 1fr)`,
               gap: '0.5rem',
               alignContent: 'start',
             }}
           >
-            {participants.map((participant) => (
-              <div 
-                key={participant.identity} 
-                className="w-full"
-                style={{
-                  aspectRatio: '16/9',
-                  minWidth: 0,
-                }}
-              >
-                {renderParticipantTile(participant, false)}
-              </div>
-            ))}
+            <style dangerouslySetInnerHTML={{
+              __html: `
+                @media (min-width: 768px) {
+                  .grid-container-${gridCols} {
+                    grid-template-columns: repeat(${gridCols}, 1fr) !important;
+                  }
+                }
+              `
+            }} />
+            <div 
+              className={`grid-container-${gridCols}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(1, 1fr)`,
+                gap: '0.5rem',
+                width: '100%',
+              }}
+            >
+              {participants.map((participant) => (
+                <div 
+                  key={participant.identity} 
+                  className="w-full"
+                  style={{
+                    aspectRatio: '16/9',
+                    minWidth: 0,
+                  }}
+                >
+                  {renderParticipantTile(participant, false)}
+                </div>
+              ))}
+            </div>
           </div>
         )
 
