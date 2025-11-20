@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { getUserProfile } from '@/lib/dynamodb';
 import { getSubjectProfile } from '@/lib/dynamodb-subjects';
+import { getSessionById } from '@/lib/dynamodb-schedules';
 import { CognitoIdentityProviderClient, AdminListGroupsForUserCommand } from '@aws-sdk/client-cognito-identity-provider';
 
 // Initialize Cognito client for group checking
@@ -21,79 +22,128 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: participantId } = await params;
+    const { searchParams } = new URL(req.url);
+    const sessionOwnerId = searchParams.get('sessionOwnerId');
+    const sessionId = searchParams.get('sessionId');
+    
+    console.log(`[API] GET /api/participants/${participantId} - sessionOwnerId: ${sessionOwnerId}, sessionId: ${sessionId}`);
+    
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
+      console.log(`[API] Unauthorized - no session user ID`);
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
-
-    const { id: participantId } = await params;
-    const { searchParams } = new URL(req.url);
-    const sessionOwnerId = searchParams.get('sessionOwnerId'); // Optional: session owner ID to determine coach
-
-    // Determine if this participant is the coach (session owner)
-    const isSessionOwner = sessionOwnerId && participantId === sessionOwnerId;
     
-    // Try jak-users table first (coaches) - query by user_id
-    const coachProfile = await getUserProfile(participantId);
-    if (coachProfile) {
-      // getUserProfile maps full_name (snake_case) from DB to fullName (camelCase)
-      // Prioritize fullName, then construct from f_name/l_name
-      const firstName = coachProfile.f_name || '';
-      const lastName = coachProfile.l_name || '';
-      let fullName = coachProfile.fullName || ''; // Already mapped from full_name (snake_case) in DB
-      
-      // If no fullName, construct from f_name and l_name
-      if (!fullName && firstName && lastName) {
-        fullName = `${firstName} ${lastName}`.trim();
-      } else if (!fullName && firstName) {
-        fullName = firstName.trim();
-      } else if (!fullName && lastName) {
-        fullName = lastName.trim();
+    let ownerId = sessionOwnerId; // Use the extracted sessionOwnerId
+
+    // If sessionOwnerId is not provided but sessionId is, try to get it from the session schedule table
+    if (!ownerId && sessionId) {
+      try {
+        const scheduleSession = await getSessionById(sessionId);
+        if (scheduleSession) {
+          ownerId = scheduleSession.user_id; // user_id is the coach/owner
+          console.log(`[API] Retrieved sessionOwnerId (${ownerId}) from session ${sessionId}`);
+        }
+      } catch (error) {
+        console.error('[API] Error fetching session to get owner_id:', error);
       }
-      
-      return NextResponse.json({
-        userId: participantId,
+    }
+
+    // Step 1: Determine if participant is a Coach
+    // A participant is a coach if their identity matches the sessionOwnerId (user_id from jak-coach-sessions-schedule)
+    const isCoach = ownerId && participantId === ownerId;
+    
+    console.log(`[API] Fetching participant info for ${participantId}, sessionOwnerId: ${ownerId}, isCoach: ${isCoach}`);
+    
+    if (isCoach) {
+      // Step 2: If Coach → query jak-users table by user_id to get f_name and l_name
+      console.log(`[API] Participant is Coach - querying jak-users table for user_id: ${participantId}`);
+      const coachProfile = await getUserProfile(participantId);
+      console.log(`[API] getUserProfile result for ${participantId}:`, coachProfile ? {
+        userId: coachProfile.userId,
         email: coachProfile.email,
-        firstName: firstName,
-        lastName: lastName,
-        fullName: fullName, // Use full_name from jak-users table
-        role: isSessionOwner ? 'coach' : 'participant',
-        label: isSessionOwner ? 'Coach' : 'Participant',
-      });
+        fullName: coachProfile.fullName,
+        f_name: coachProfile.f_name,
+        l_name: coachProfile.l_name
+      } : 'null');
+      
+      if (coachProfile) {
+        const firstName = coachProfile.f_name || '';
+        const lastName = coachProfile.l_name || '';
+        let fullName = coachProfile.fullName || '';
+        
+        // Construct fullName from f_name and l_name
+        if (!fullName && firstName && lastName) {
+          fullName = `${firstName} ${lastName}`.trim();
+        } else if (!fullName && firstName) {
+          fullName = firstName.trim();
+        } else if (!fullName && lastName) {
+          fullName = lastName.trim();
+        }
+        
+        console.log(`[API] Found coach profile for ${participantId}:`, { firstName, lastName, fullName });
+        
+        return NextResponse.json({
+          userId: participantId,
+          email: coachProfile.email,
+          firstName: firstName,
+          lastName: lastName,
+          fullName: fullName,
+          role: 'coach',
+          label: 'Coach',
+        });
+      } else {
+        console.log(`[API] Coach profile not found in jak-users for ${participantId}`);
+      }
+    } else {
+      // Step 3: If NOT Coach → query jak-subjects table by subject_id (and owner_id if available) to get f_name and l_name
+      console.log(`[API] Participant is NOT Coach - querying jak-subjects table for subject_id: ${participantId} with ownerId: ${ownerId}`);
+      const subjectProfile = await getSubjectProfile(participantId, ownerId || undefined);
+      console.log(`[API] getSubjectProfile result for ${participantId}:`, subjectProfile ? {
+        subject_id: subjectProfile.subject_id,
+        owner_id: subjectProfile.owner_id,
+        email: subjectProfile.email,
+        full_name: subjectProfile.full_name,
+        f_name: subjectProfile.f_name,
+        l_name: subjectProfile.l_name
+      } : 'null');
+      
+      if (subjectProfile) {
+        const firstName = subjectProfile.f_name || '';
+        const lastName = subjectProfile.l_name || '';
+        let fullName = subjectProfile.full_name || '';
+        
+        // Construct fullName from f_name and l_name
+        if (!fullName && firstName && lastName) {
+          fullName = `${firstName} ${lastName}`.trim();
+        } else if (!fullName && firstName) {
+          fullName = firstName.trim();
+        } else if (!fullName && lastName) {
+          fullName = lastName.trim();
+        }
+        
+        console.log(`[API] Found subject profile for ${participantId}:`, { firstName, lastName, fullName, owner_id: subjectProfile.owner_id });
+        
+        return NextResponse.json({
+          userId: participantId,
+          email: subjectProfile.email,
+          firstName: firstName,
+          lastName: lastName,
+          fullName: fullName,
+          role: 'member',
+          label: 'Participant',
+        });
+      } else {
+        console.log(`[API] Subject profile not found in jak-subjects for ${participantId}`);
+      }
     }
     
-    // Try jak-subjects table (members) - query by subject_id
-    const subjectProfile = await getSubjectProfile(participantId);
-    if (subjectProfile) {
-      // getSubjectProfile returns raw DynamoDB item with snake_case fields
-      // Prioritize full_name (snake_case) from database, then construct from f_name/l_name
-      const firstName = subjectProfile.f_name || '';
-      const lastName = subjectProfile.l_name || '';
-      let fullName = subjectProfile.full_name || ''; // full_name is snake_case in DB
-      
-      // If no full_name, construct from f_name and l_name
-      if (!fullName && firstName && lastName) {
-        fullName = `${firstName} ${lastName}`.trim();
-      } else if (!fullName && firstName) {
-        fullName = firstName.trim();
-      } else if (!fullName && lastName) {
-        fullName = lastName.trim();
-      }
-      
-      return NextResponse.json({
-        userId: participantId,
-        email: subjectProfile.email,
-        firstName: firstName,
-        lastName: lastName,
-        fullName: fullName, // Use full_name from jak-subjects table
-        role: 'member',
-        label: 'Participant',
-      });
-    }
+    console.log(`[API] No profile found for participant ${participantId} in jak-users or jak-subjects tables`);
 
     // If we can't find the participant, return minimal info
     return NextResponse.json({

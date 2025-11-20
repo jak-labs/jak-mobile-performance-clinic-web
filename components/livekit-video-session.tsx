@@ -33,9 +33,10 @@ interface LiveKitVideoSessionProps {
   sessionTitle?: string
   sessionOwnerId?: string | null
   sessionType?: string | null // "single" or "group"
+  sessionId?: string | null
 }
 
-export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwnerId, sessionType }: LiveKitVideoSessionProps) {
+export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwnerId, sessionType, sessionId }: LiveKitVideoSessionProps) {
   const { data: session } = useSession()
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(true)
@@ -135,6 +136,8 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
         v2Enabled={v2Enabled}
         sessionOwnerId={sessionOwnerId}
         sessionType={sessionType}
+        sessionId={sessionId}
+        sessionTitle={sessionTitle}
       />
       <RoomAudioRenderer />
     </LiveKitRoom>
@@ -151,6 +154,8 @@ function RoomContent({
   v2Enabled,
   sessionOwnerId,
   sessionType,
+  sessionId,
+  sessionTitle,
 }: {
   isPanelOpen: boolean
   setIsPanelOpen: (open: boolean) => void
@@ -161,6 +166,8 @@ function RoomContent({
   v2Enabled: boolean
   sessionOwnerId?: string | null
   sessionType?: string | null
+  sessionId?: string | null
+  sessionTitle?: string | null
 }) {
   const router = useRouter()
   // Layout state management
@@ -194,6 +201,8 @@ function RoomContent({
   const [isCoach, setIsCoach] = useState<boolean | null>(null)
   const [participantInfo, setParticipantInfo] = useState<Record<string, { firstName: string; lastName: string; fullName: string; label: string; role: string }>>({})
   const fetchedParticipantsRef = useRef<Set<string>>(new Set())
+  const [expectedParticipants, setExpectedParticipants] = useState<Array<{ id: string; name: string; isConnected: boolean }>>([])
+  const [isLoadingExpectedParticipants, setIsLoadingExpectedParticipants] = useState(true)
   const room = useRoomContext()
   const localParticipant = room.localParticipant
   const remoteParticipants = Array.from(room.remoteParticipants.values())
@@ -258,6 +267,7 @@ function RoomContent({
     }
   }, [session])
 
+
   // Get all participants using LiveKit hook
   // useParticipants() returns all participants including local participant
   const participantsFromHook = useParticipants()
@@ -273,46 +283,69 @@ function RoomContent({
     ? allRoomParticipants 
     : participantsFromHook
   
-
-  // Fetch participant info (first name, last name, label) for all participants
-  useEffect(() => {
+  // Track which participants we've fetched to avoid duplicate calls
+  const fetchInitiatedRef = useRef<Set<string>>(new Set())
+  
+  // Fetch participant info directly when participants are available
+  // This runs on every render but only fetches for new participants
+  const participantIdentities = participants
+    .map(p => p.identity)
+    .filter(id => id && id.trim() !== '')
+  
+  const newParticipants = participantIdentities.filter(id => !fetchInitiatedRef.current.has(id))
+  
+  if (newParticipants.length > 0 && localParticipant?.identity) {
+    newParticipants.forEach(id => fetchInitiatedRef.current.add(id))
+    
+    // Trigger fetch asynchronously
+    Promise.resolve().then(async () => {
     const fetchParticipantInfo = async () => {
       const allParticipants = [
         { identity: localParticipant.identity, isLocal: true },
         ...remoteParticipants.map((p) => ({ identity: p.identity, isLocal: false })),
       ]
 
-      const infoPromises = allParticipants
-        .filter(p => p.identity && p.identity.trim() !== '') // Filter out empty identities first
-        .map(async (p) => {
-          // Skip if we already have info for this participant or already fetched
-          if (participantInfo[p.identity] || fetchedParticipantsRef.current.has(p.identity)) {
-            console.log(`Skipping ${p.identity}, already have info or already fetched`)
-            return null
-          }
-          
-          // Mark as being fetched
-          fetchedParticipantsRef.current.add(p.identity)
-
+      // Helper function to fetch with timeout and retry
+      const fetchWithRetry = async (identity: string, retries = 2): Promise<any> => {
+        const params = new URLSearchParams()
+        if (sessionOwnerId) {
+          params.append('sessionOwnerId', sessionOwnerId)
+        }
+        if (sessionId) {
+          params.append('sessionId', sessionId)
+        }
+        const queryString = params.toString()
+        const url = `/api/participants/${encodeURIComponent(identity)}${queryString ? `?${queryString}` : ''}`
+        
+        for (let attempt = 0; attempt <= retries; attempt++) {
           try {
-          // Pass sessionOwnerId as query param to correctly identify the coach
-          const url = sessionOwnerId 
-            ? `/api/participants/${encodeURIComponent(p.identity)}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}`
-            : `/api/participants/${encodeURIComponent(p.identity)}`
-          
-          const response = await fetch(url)
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Request timeout')), 5000)
+            )
+            
+            const response = await Promise.race([
+              fetch(url),
+              timeoutPromise
+            ]) as Response
+            
           if (response.ok) {
             const data = await response.json()
             
-            // Make sure we have valid name data
             const firstName = data.firstName || ''
             const lastName = data.lastName || ''
-            const fullName = data.fullName || (firstName && lastName ? `${firstName} ${lastName}`.trim() : '')
-            
-            console.log(`Parsed name data for ${p.identity}:`, { firstName, lastName, fullName, role: data.role })
+              let fullName = ''
+              if (firstName && lastName) {
+                fullName = `${firstName} ${lastName}`.trim()
+              } else if (data.fullName && data.fullName.trim()) {
+                fullName = data.fullName.trim()
+              } else if (firstName) {
+                fullName = firstName.trim()
+              } else if (lastName) {
+                fullName = lastName.trim()
+              }
             
             return {
-              identity: p.identity,
+                identity: identity,
               info: {
                 firstName: firstName,
                 lastName: lastName,
@@ -321,17 +354,53 @@ function RoomContent({
                 role: data.role || 'unknown',
               },
             }
+            } else {
+              const errorText = await response.text()
+              console.error(`[Client] API error for ${identity}:`, response.status, errorText)
           }
         } catch (error) {
-          // Silently fail - will show "Loading..." as fallback
+            if (attempt < retries) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+            }
+          }
         }
+        
+        return {
+          identity: identity,
+          info: {
+            firstName: '',
+            lastName: '',
+            fullName: identity,
+            label: 'Participant',
+            role: 'unknown',
+          },
+        }
+      }
+
+      const infoPromises = allParticipants
+        .filter(p => p.identity && p.identity.trim() !== '')
+        .map(async (p) => {
+          if (participantInfo[p.identity] && participantInfo[p.identity].fullName && participantInfo[p.identity].fullName !== 'Loading...') {
         return null
+          }
+          
+          if (fetchedParticipantsRef.current.has(p.identity)) {
+            const existingInfo = participantInfo[p.identity]
+            if (existingInfo && existingInfo.fullName && existingInfo.fullName !== 'Loading...') {
+              return null
+            }
+          }
+          
+          fetchedParticipantsRef.current.add(p.identity)
+          const result = await fetchWithRetry(p.identity)
+          return result
       })
 
       const results = await Promise.all(infoPromises)
-      const newInfo: typeof participantInfo = { ...participantInfo }
       
+        const newInfo: typeof participantInfo = { ...participantInfo }
       let hasUpdates = false
+        
       results.forEach((result) => {
         if (result && result.info) {
           newInfo[result.identity] = result.info
@@ -344,13 +413,11 @@ function RoomContent({
       }
     }
 
-    if (participants.length > 0) {
-      fetchParticipantInfo().catch(() => {
-        // Silently fail
+      fetchParticipantInfo().catch((error) => {
+        console.error('[Client] Error in fetchParticipantInfo:', error)
       })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [participants.length, localParticipant.identity, remoteParticipants.length, sessionOwnerId])
+    })
+  }
   
   // Determine coach participant based on session owner (who created the session)
   // The coach is the participant whose identity matches the session's user_id (owner)
@@ -370,10 +437,174 @@ function RoomContent({
   // Include ALL participants, not just remote ones
   const otherParticipants = participants.filter((p) => p.identity !== coachParticipant?.identity)
   
-  // Debug logging
-  console.log('Participants:', participants.length, participants.map(p => p.identity))
-  console.log('Coach:', coachParticipant?.identity)
-  console.log('Other participants:', otherParticipants.length, otherParticipants.map(p => p.identity))
+  // Track if we've already fetched the expected participants to avoid re-fetching
+  const expectedParticipantsFetchedRef = useRef<boolean>(false)
+  const expectedParticipantIdsRef = useRef<string[]>([])
+  
+  // Fetch expected participants from session (only once, or when sessionId changes)
+  useEffect(() => {
+    const fetchExpectedParticipants = async () => {
+      if (!sessionId) {
+        setIsLoadingExpectedParticipants(false)
+        return
+      }
+
+      // Skip if we've already fetched for this session
+      if (expectedParticipantsFetchedRef.current) {
+        return
+      }
+
+      try {
+        setIsLoadingExpectedParticipants(true)
+        console.log('[Client] Fetching session data for:', sessionId)
+        const response = await fetch(`/api/sessions/${sessionId}`)
+        
+        if (!response.ok) {
+          console.error('[Client] Failed to fetch session:', response.status, response.statusText)
+          const errorText = await response.text()
+          console.error('[Client] Error response:', errorText)
+          setIsLoadingExpectedParticipants(false)
+          return
+        }
+        
+        const data = await response.json()
+        console.log('[Client] Session data received:', data)
+        const sessionData = data.session
+        
+        if (!sessionData) {
+          console.error('[Client] No session data in response')
+          setIsLoadingExpectedParticipants(false)
+          return
+        }
+        
+        console.log('[Client] Session data:', {
+          user_id: sessionData.user_id,
+          subject_id: sessionData.subject_id,
+          subject_ids: sessionData.subject_ids,
+          session_id: sessionData.session_id
+        })
+        
+        const expectedIds: string[] = []
+        
+        // Add coach/owner
+        if (sessionData.user_id) {
+          expectedIds.push(sessionData.user_id)
+          console.log('[Client] Added coach:', sessionData.user_id)
+        }
+        
+        // Add single participant (1:1 session)
+        if (sessionData.subject_id) {
+          expectedIds.push(sessionData.subject_id)
+          console.log('[Client] Added subject_id:', sessionData.subject_id)
+        }
+        
+        // Add group participants
+        if (sessionData.subject_ids && Array.isArray(sessionData.subject_ids)) {
+          expectedIds.push(...sessionData.subject_ids)
+          console.log('[Client] Added subject_ids:', sessionData.subject_ids)
+        }
+        
+        console.log('[Client] Total expected participants:', expectedIds)
+        
+        if (expectedIds.length === 0) {
+          console.warn('[Client] No expected participants found in session data')
+          setExpectedParticipants([])
+          setIsLoadingExpectedParticipants(false)
+          return
+        }
+        
+        // Store the expected IDs
+        expectedParticipantIdsRef.current = expectedIds
+        
+        // Fetch names for all expected participants
+        const participantPromises = expectedIds.map(async (id) => {
+          try {
+            const url = sessionOwnerId 
+              ? `/api/participants/${id}?sessionOwnerId=${encodeURIComponent(sessionOwnerId)}&sessionId=${sessionId}`
+              : `/api/participants/${id}?sessionId=${sessionId}`
+            console.log('[Client] Fetching participant info from:', url)
+            const participantResponse = await fetch(url)
+            if (participantResponse.ok) {
+              const participantData = await participantResponse.json()
+              console.log('[Client] Participant data for', id, ':', participantData)
+              
+              // Build full name from firstName and lastName
+              const firstName = participantData.firstName || ''
+              const lastName = participantData.lastName || ''
+              let fullName = ''
+              if (firstName && lastName) {
+                fullName = `${firstName} ${lastName}`.trim()
+              } else if (participantData.fullName && participantData.fullName.trim()) {
+                fullName = participantData.fullName.trim()
+              } else if (firstName) {
+                fullName = firstName.trim()
+              } else if (lastName) {
+                fullName = lastName.trim()
+              } else {
+                fullName = id // Fallback to ID only if no name data
+              }
+              
+              console.log('[Client] Built name for', id, ':', fullName)
+              
+              return {
+                id,
+                name: fullName,
+                isConnected: false // Will be updated by the next useEffect
+              }
+            } else {
+              console.error('[Client] Failed to fetch participant', id, ':', participantResponse.status)
+            }
+          } catch (error) {
+            console.error(`[Client] Error fetching participant ${id}:`, error)
+          }
+          // Fallback: return ID as name only if fetch completely fails
+          return {
+            id,
+            name: id,
+            isConnected: false // Will be updated by the next useEffect
+          }
+        })
+        
+        const participantsList = await Promise.all(participantPromises)
+        console.log('[Client] Final participants list:', participantsList)
+        setExpectedParticipants(participantsList)
+        expectedParticipantsFetchedRef.current = true
+      } catch (error) {
+        console.error("[Client] Error fetching expected participants:", error)
+        // Don't clear existing participants on error
+      } finally {
+        setIsLoadingExpectedParticipants(false)
+      }
+    }
+
+    if (sessionId) {
+      fetchExpectedParticipants()
+    }
+  }, [sessionId, sessionOwnerId])
+
+  // Update connection status when participants change (without re-fetching)
+  useEffect(() => {
+    if (expectedParticipantIdsRef.current.length > 0 && participants.length > 0) {
+      // Get all participant identities including local participant
+      const allParticipantIdentities = [
+        localParticipant?.identity,
+        ...remoteParticipants.map(p => p.identity)
+      ].filter(Boolean) as string[]
+      
+      console.log('[Client] Updating connection status.')
+      console.log('[Client] All connected participant identities:', allParticipantIdentities)
+      console.log('[Client] Expected participant IDs:', expectedParticipantIdsRef.current)
+      
+      setExpectedParticipants(prev => prev.map(exp => {
+        const isConnected = allParticipantIdentities.some(identity => identity === exp.id)
+        console.log(`[Client] Checking ${exp.id} (${exp.name}): ${isConnected ? '✅ Connected' : '❌ Not Connected'}`)
+        return {
+          ...exp,
+          isConnected
+        }
+      }))
+    }
+  }, [participants.length, localParticipant?.identity, remoteParticipants.length])
   
   // Helper to get track for a participant
   const getTrackForParticipant = (participantIdentity: string) => {
@@ -394,27 +625,29 @@ function RoomContent({
       let fullName = ''
       if (firstName && lastName) {
         fullName = `${firstName} ${lastName}`.trim()
-      } else if (info.fullName && !info.fullName.includes('@') && info.fullName.trim()) {
+      } else if (info.fullName && info.fullName.trim() && !info.fullName.includes('@')) {
         // Use fullName from API if it's not an email
         fullName = info.fullName.trim()
       } else if (firstName) {
         fullName = firstName.trim()
       } else if (lastName) {
         fullName = lastName.trim()
+      } else if (info.fullName && info.fullName.trim()) {
+        // Use fullName even if it might be an email, as long as it's not empty
+        fullName = info.fullName.trim()
       }
 
-      console.log(`Name construction for ${participant.identity}:`, { firstName, lastName, fullNameFromInfo: info.fullName, constructedFullName: fullName })
-
-      // Only return formatted name if we have actual name data (not email, not empty)
-      if (fullName && fullName.trim() && !fullName.includes('@')) {
+      // Return formatted name if we have any name data
+      if (fullName && fullName.trim()) {
         // Determine role label
         const role = info.role === 'coach' ? 'Coach' : 'Participant'
         return `${fullName} (${role})`
       }
     }
 
-    // Fallback: show "Loading..." while we wait for API response
-    return 'Loading...'
+    // Fallback: show participant identity instead of "Loading..." forever
+    // This ensures we always show something useful
+    return participant.identity || 'Participant'
   }
 
   // Helper to render a participant video tile
@@ -492,15 +725,22 @@ function RoomContent({
     switch (layoutMode) {
       case 'grid':
         // Grid layout: all participants in a responsive grid
-        // Calculate grid columns based on participant count
+        // If only one participant, show them full screen
         const participantCount = participants.length
+        
+        if (participantCount === 1 && participants[0]) {
+          return (
+            <div className="h-full w-full">
+              {renderParticipantTile(participants[0], true)}
+            </div>
+          )
+        }
+        
+        // Calculate grid columns based on participant count
         let gridColsClass = 'grid-cols-2' // Default for 2 participants (side by side)
         let useFullHeight = false
         
-        if (participantCount === 1) {
-          gridColsClass = 'grid-cols-1'
-          useFullHeight = true
-        } else if (participantCount === 2) {
+        if (participantCount === 2) {
           gridColsClass = 'grid-cols-2' // Side by side - full height
           useFullHeight = true
         } else if (participantCount <= 4) {
@@ -577,9 +817,18 @@ function RoomContent({
       case 'default':
       default:
         // Default layout: both boxes same size, side by side, centered
-        // If only one participant total, don't show small boxes (no duplicates)
+        // Always show at least one participant, even if alone
         const totalParticipants = participants.length
         const isCoachViewing = isCoach && coachParticipant
+        
+        // If only one participant, show them full screen
+        if (totalParticipants === 1 && participants[0]) {
+          return (
+            <div className="h-full w-full">
+              {renderParticipantTile(participants[0], true)}
+            </div>
+          )
+        }
         
         if (isCoachViewing) {
           // Coach viewing: participants and coach same size, side by side, centered
@@ -591,8 +840,8 @@ function RoomContent({
                   {renderParticipantTile(otherParticipants[0], false)}
                 </div>
               )}
-              {/* Coach - same size as participant (only if more than 1 participant total) */}
-              {coachParticipant && totalParticipants > 1 && (
+              {/* Coach - same size as participant */}
+              {coachParticipant && (
                 <div className="w-full md:w-1/2 flex-shrink-0">
                   {renderParticipantTile(coachParticipant, false)}
                 </div>
@@ -609,8 +858,8 @@ function RoomContent({
                   {renderParticipantTile(coachParticipant, false)}
                 </div>
               )}
-              {/* Other participants - same size as coach (only if more than 1 participant total) */}
-              {otherParticipants.length > 0 && totalParticipants > 1 && (
+              {/* Other participants - same size as coach */}
+              {otherParticipants.length > 0 && (
                 <div className="w-full md:w-1/2 flex-shrink-0">
                   {renderParticipantTile(otherParticipants[0], false)}
                 </div>
@@ -763,7 +1012,7 @@ function RoomContent({
         </div>
 
         {/* Session info - Clean, minimal badges */}
-        <div className="absolute top-4 md:top-6 left-4 md:left-6 bg-transparent px-3 md:px-4 py-2 md:py-2.5 rounded-xl z-10">
+        <div className="absolute top-4 md:top-6 left-4 md:left-6 bg-black/30 backdrop-blur-sm px-3 md:px-4 py-2 md:py-2.5 rounded-xl z-10 border border-white/10">
           <p className="text-[7px] md:text-[8px] text-white/60 uppercase tracking-wider mb-0.5">Session Duration</p>
           <p className="text-[9px] md:text-[11px] font-mono font-semibold text-white mb-1">{sessionDuration}</p>
           {/* Connected status - smaller, inside Session Duration box */}
@@ -817,53 +1066,71 @@ function RoomContent({
             value="session"
             className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide mt-0 h-[calc(100vh-120px)]"
           >
+            {/* Session Name */}
+            {sessionTitle && (
+              <div className="mb-4">
+                <h2 className="font-semibold text-base">{sessionTitle}</h2>
+              </div>
+            )}
+            
             <h3 className="font-semibold text-sm">Participants</h3>
-            {participants
-              .filter((p) => p.identity !== localParticipant.identity)
-              .map((participant) => {
-                const info = participantInfo[participant.identity]
-                const displayName = formatParticipantName(info, participant)
-                const firstName = info?.firstName || ''
-                const firstLetter = firstName 
-                  ? firstName.charAt(0).toUpperCase()
-                  : (info?.fullName || participant.name || participant.identity).charAt(0).toUpperCase()
+            
+            {isLoadingExpectedParticipants ? (
+              <div className="text-sm text-muted-foreground">Loading participants...</div>
+            ) : expectedParticipants.length > 0 ? (
+              <div className="space-y-3">
+                {expectedParticipants.map((expected) => {
+                  // Find the connected participant if they're in the session
+                  const connectedParticipant = participants.find(p => p.identity === expected.id)
+                  const info = participantInfo[expected.id]
+                  
+                  // Use name from expected participants list (already fetched), or from participantInfo, or fallback
+                  let displayName = expected.name
+                  if (info?.fullName) {
+                    displayName = info.fullName
+                  } else if (info?.firstName && info?.lastName) {
+                    displayName = `${info.firstName} ${info.lastName}`.trim()
+                  } else if (expected.name && expected.name !== expected.id) {
+                    displayName = expected.name
+                  } else {
+                    displayName = expected.id // Last resort
+                  }
+                  
+                  const firstName = info?.firstName || expected.name.split(' ')[0] || ''
+                  const firstLetter = firstName 
+                    ? firstName.charAt(0).toUpperCase()
+                    : (displayName && displayName !== expected.id ? displayName.charAt(0).toUpperCase() : expected.id.charAt(0).toUpperCase())
                 
                 return (
-                  <Card key={participant.identity} className="p-3 space-y-2">
+                    <Card key={expected.id} className="p-3">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
                         <span className="text-xs font-medium">
                           {firstLetter}
                         </span>
                       </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{displayName}</span>
+                            {expected.isConnected ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">
+                                Connected
+                              </span>
+                            ) : (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-600 dark:text-gray-400">
+                                Not Joined
+                              </span>
+                            )}
                     </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Add Note</label>
-                  <Textarea
-                    placeholder="Type session notes..."
-                    value={participantNotes[participant.identity] || ""}
-                    onChange={(e) =>
-                      setParticipantNotes({
-                        ...participantNotes,
-                        [participant.identity]: e.target.value,
-                      })
-                    }
-                    className="min-h-[60px] text-sm"
-                  />
-                  <Button
-                    size="sm"
-                    className="w-full"
-                    onClick={() => handleAddNote(participant.identity)}
-                    disabled={!participantNotes[participant.identity]?.trim()}
-                  >
-                    <Send className="h-3 w-3 mr-1" />
-                    Save Note
-                  </Button>
+                        </div>
                 </div>
               </Card>
                 )
               })}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No participants found</div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

@@ -94,6 +94,15 @@ export async function GET(
       );
     }
 
+    // Log the session data for debugging
+    console.log('[API] Session data retrieved:', {
+      session_id: dbSession.session_id,
+      user_id: dbSession.user_id,
+      subject_id: dbSession.subject_id,
+      subject_ids: dbSession.subject_ids,
+      session_type: dbSession.session_type
+    });
+
     return NextResponse.json(
       { session: dbSession },
       { status: 200 }

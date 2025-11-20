@@ -82,6 +82,7 @@ export default function SessionPage() {
         sessionTitle={sessionTitle} 
         sessionOwnerId={sessionOwnerId}
         sessionType={sessionType}
+        sessionId={sessionId}
       />
     </div>
   )
