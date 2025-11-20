@@ -296,8 +296,8 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                 </RadioGroup>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
+              <div className="flex flex-col xl:flex-row gap-4">
+                <div className="space-y-2 flex-1 min-w-0 w-full">
                   <Label htmlFor="date">Date *</Label>
                   <Input
                     id="date"
@@ -305,17 +305,17 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                     value={formData.date}
                     onChange={(e) => handleInputChange("date", e.target.value)}
                     required
-                    className="w-full"
+                    className="w-full max-w-full"
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 flex-1 min-w-0 w-full">
                   <Label htmlFor="time">Time *</Label>
                   <Select
                     value={formData.time}
                     onValueChange={(value) => handleInputChange("time", value)}
                     required
                   >
-                    <SelectTrigger id="time" className="w-full">
+                    <SelectTrigger id="time" className="w-full max-w-full">
                       <SelectValue placeholder="Select time" />
                     </SelectTrigger>
                     <SelectContent className="max-h-[300px]">
