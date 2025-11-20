@@ -23,6 +23,7 @@ import {
   GridLayout,
   FocusLayout,
   FocusLayoutContainer,
+  CarouselLayout,
 } from "@livekit/components-react"
 import "@livekit/components-styles"
 import { Track, TrackPublication } from "livekit-client"
@@ -842,7 +843,7 @@ function RoomContent({
             <div 
               className="h-full w-full p-2 md:p-4 overflow-y-auto grid-layout-mobile-stack"
             >
-              {participants.map((participant) => (
+            {participants.map((participant) => (
                 <div 
                   key={participant.identity} 
                   className="w-full"
@@ -852,15 +853,15 @@ function RoomContent({
                   }}
                 >
                   {renderParticipantTile(participant, false)}
-                </div>
-              ))}
-            </div>
+              </div>
+            ))}
+          </div>
           </>
         )
 
       case 'spotlight':
-        // Spotlight layout: use LiveKit's FocusLayout for the focused participant
-        // Based on: https://github.com/livekit/components-js/blob/main/packages/react/src/components/layout/FocusLayout.tsx
+        // Spotlight layout: use LiveKit's FocusLayoutContainer with CarouselLayout and FocusLayout
+        // Based on: https://github.com/livekit/components-js/blob/main/packages/react/src/prefabs/VideoConference.tsx
         const spotlightParticipant = spotlightParticipantId
           ? participants.find((p) => p.identity === spotlightParticipantId)
           : otherParticipants[0] || coachParticipant
@@ -869,43 +870,95 @@ function RoomContent({
           return <div className="h-full w-full flex items-center justify-center text-white">No participants</div>
         }
 
-        // Get track reference for the spotlight participant
+        // Get track references for all participants
         const spotlightTrackRef = getTrackForParticipant(spotlightParticipant.identity)
-        
         const totalParticipantsSpotlight = participants.length
-        const otherParticipantsList = otherParticipants.filter((p) => p.identity !== spotlightParticipant.identity)
+        const otherParticipantsList = participants.filter((p) => p.identity !== spotlightParticipant.identity)
         
+        // Get track references for carousel participants, creating placeholders for those without tracks
+        const carouselTracks = otherParticipantsList.map((p) => {
+          const trackRef = getTrackForParticipant(p.identity)
+          // If no track reference found, create a placeholder
+          if (!trackRef) {
+            return {
+              participant: p,
+              source: Track.Source.Camera,
+            } as { participant: typeof p; source: Track.Source }
+          }
+          return trackRef
+        }).filter((track): track is NonNullable<typeof track> => track !== undefined)
+        
+        // If only one participant, show them full screen
+        if (totalParticipantsSpotlight === 1) {
         return (
-          <div className="h-full w-full flex flex-col md:flex-row">
-            {/* Main spotlight video using FocusLayout */}
-            <div className="flex-1 min-w-0 h-full" style={{ flex: '0 0 70%' }}>
+            <div className="h-full w-full">
               {spotlightTrackRef ? (
-                <div className="h-full w-full">
-                  <FocusLayout trackRef={spotlightTrackRef} className="h-full w-full" />
-                </div>
+                <FocusLayout trackRef={spotlightTrackRef} className="h-full w-full" />
               ) : (
-                // Fallback if no track available
                 renderParticipantTile(spotlightParticipant, true)
               )}
             </div>
-            {/* Small participant boxes (only if more than 1 participant total) */}
-            {otherParticipantsList.length > 0 && totalParticipantsSpotlight > 1 && (
-              <div className="md:w-80 md:flex-col md:gap-3 md:p-3 flex flex-row gap-2 p-2 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
-                {otherParticipantsList.map((participant) => {
-                  const participantTrackRef = getTrackForParticipant(participant.identity)
-                  return (
-                    <div key={participant.identity} className="md:w-full md:aspect-video">
-                      {participantTrackRef ? (
-                        <ParticipantTile trackRef={participantTrackRef} />
-                      ) : (
-                        renderParticipantTile(participant, false)
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          )
+        }
+        
+        // Use FocusLayoutContainer with CarouselLayout and FocusLayout
+        return (
+          <>
+            <style dangerouslySetInnerHTML={{
+              __html: `
+                /* Hide default LiveKit participant names in focus layout */
+                .lk-focus-layout .lk-participant-name {
+                  display: none !important;
+                }
+              `
+            }} />
+            <FocusLayoutContainer className="h-full w-full">
+              {/* CarouselLayout for side participants - comes first in DOM */}
+              {carouselTracks.length > 0 && (
+                <CarouselLayout tracks={carouselTracks}>
+                  <TrackRefContext.Consumer>
+                    {(trackRef) => {
+                      if (!trackRef) return <ParticipantTile />
+                      const participant = trackRef.participant
+                      const info = participantInfo[participant.identity]
+                      const displayName = formatParticipantName(info, participant as typeof participants[0])
+                      
+                      return (
+                        <div className="relative h-full w-full">
+                          <ParticipantTile trackRef={trackRef} />
+                          {/* Custom name overlay using our formatted name */}
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-2 py-1.5 pointer-events-none z-10">
+                            <p className="font-medium text-white text-xs md:text-sm text-center truncate">{displayName}</p>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  </TrackRefContext.Consumer>
+                </CarouselLayout>
+              )}
+              {/* FocusLayout for main participant - comes second in DOM */}
+              {spotlightTrackRef ? (
+                <div className="relative h-full w-full">
+                  <FocusLayout trackRef={spotlightTrackRef} />
+                  {/* Custom name overlay for main participant */}
+                  {(() => {
+                    const info = participantInfo[spotlightParticipant.identity]
+                    const displayName = formatParticipantName(info, spotlightParticipant)
+                    return (
+                      <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded pointer-events-none z-10">
+                        <p className="font-medium text-white text-xs md:text-sm">{displayName}</p>
+                      </div>
+                    )
+                  })()}
+                </div>
+              ) : (
+                // Fallback if no track available
+                <div className="h-full w-full">
+                  {renderParticipantTile(spotlightParticipant, true)}
+                </div>
+              )}
+            </FocusLayoutContainer>
+          </>
         )
 
       case 'one-on-one':
@@ -958,7 +1011,7 @@ function RoomContent({
           gridColsDefault = 4
         }
         
-        return (
+          return (
           <>
             <style dangerouslySetInnerHTML={{
               __html: `
@@ -989,9 +1042,9 @@ function RoomContent({
                   {renderParticipantTile(participant, false)}
                 </div>
               ))}
-            </div>
+                </div>
           </>
-        )
+          )
     }
   }
 
@@ -1203,21 +1256,21 @@ function RoomContent({
                   }
                   
                   const firstName = info?.firstName || expected.name.split(' ')[0] || ''
-                  const firstLetter = firstName 
-                    ? firstName.charAt(0).toUpperCase()
+                const firstLetter = firstName 
+                  ? firstName.charAt(0).toUpperCase()
                     : (displayName && displayName !== expected.id ? displayName.charAt(0).toUpperCase() : expected.id.charAt(0).toUpperCase())
-                  
-                  return (
+                
+                return (
                     <Card key={expected.id} className="p-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                          <span className="text-xs font-medium">
-                            {firstLetter}
-                          </span>
-                        </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                        <span className="text-xs font-medium">
+                          {firstLetter}
+                        </span>
+                      </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-sm">{displayName}</span>
+                      <span className="font-medium text-sm">{displayName}</span>
                             {isCoach && (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium">
                                 Coach
@@ -1232,12 +1285,12 @@ function RoomContent({
                                 Not Joined
                               </span>
                             )}
-                          </div>
+                    </div>
                         </div>
-                      </div>
-                    </Card>
-                  )
-                })}
+                </div>
+              </Card>
+                )
+              })}
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">No participants found</div>
