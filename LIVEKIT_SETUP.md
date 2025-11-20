@@ -12,6 +12,9 @@ LIVEKIT_API_SECRET=qennh6mdv1s7oO6fFtMfz6d5UUlKsVxnL9qTn7Y2iaiB
 
 # Public LiveKit URL (for client-side connection)
 NEXT_PUBLIC_LIVEKIT_URL=wss://jak-fcjstami.livekit.cloud
+
+# OpenAI Configuration (for AI Movement Analysis)
+OPENAI_API_KEY=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
 ```
 
 **Note**: `NEXT_PUBLIC_LIVEKIT_URL` is required for client-side LiveKit connections. The server-side variables (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) are used for server-side operations like creating rooms and generating tokens.
@@ -32,6 +35,7 @@ NEXT_PUBLIC_LIVEKIT_URL=wss://jak-fcjstami.livekit.cloud
 - **Participant Management**: See all participants and add notes
 - **Session Duration Timer**: Tracks how long the session has been active
 - **Connection Status**: Shows connection status indicator
+- **AI Movement Analysis**: Real-time AI insights on movement patterns, balance, and symmetry (requires OpenAI API key)
 
 ## DynamoDB Schema Update
 
@@ -43,6 +47,8 @@ The `jak-coach-sessions-schedule` table now includes:
 - `POST /api/livekit/token` - Generate LiveKit access token for a user
 - `POST /api/livekit/create-room` - Create a new LiveKit room (used internally)
 - `GET /api/sessions/[id]` - Get session details including LiveKit room name
+- `POST /api/ai/analyze-movement` - Analyze movement patterns using OpenAI Vision API
+- `POST /api/livekit/ai-agent` - Create AI agent token for room analysis
 
 ## Usage
 

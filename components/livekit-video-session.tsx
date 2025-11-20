@@ -30,6 +30,7 @@ import "@livekit/components-styles"
 import { Track, TrackPublication } from "livekit-client"
 import MetricsDashboard from "./metrics-dashboard"
 import { useV2 } from "@/lib/v2-context"
+import { AIInsightsPanel } from "./ai-insights-panel"
 // import { CustomVideoControls } from "./custom-video-controls" // Custom controls - commented out for testing LiveKit standard controls
 
 type LayoutMode = 'default' | 'grid' | 'spotlight' | 'one-on-one'
@@ -1212,6 +1213,9 @@ function RoomContent({
               <TabsTrigger value="session" className="flex-1">
                 Session
               </TabsTrigger>
+              <TabsTrigger value="ai-insights" className="flex-1">
+                AI Insights
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -1301,6 +1305,19 @@ function RoomContent({
             ) : (
               <div className="text-sm text-muted-foreground">No participants found</div>
             )}
+          </TabsContent>
+
+          <TabsContent
+            value="ai-insights"
+            className="flex-1 overflow-y-auto scrollbar-hide mt-0 h-[calc(100vh-120px)]"
+          >
+            <AIInsightsPanel
+              participants={participants.map(p => ({
+                identity: p.identity,
+                name: participantInfo[p.identity]?.fullName || p.name || p.identity
+              }))}
+              participantInfo={participantInfo}
+            />
           </TabsContent>
         </Tabs>
       </div>
