@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone, Grid3x3, User, LayoutGrid } from "lucide-react"
@@ -792,140 +792,73 @@ function RoomContent({
     }
   }
 
-  // Memoize grid tracks to prevent unnecessary recalculations that cause layout resizing
-  // Use a stable key based on participant identities and track sources to prevent unnecessary recalculations
-  const gridTracksWithPlaceholders = useMemo(() => {
-    if (layoutMode !== 'grid') return []
-    
-    // Get all camera tracks - use tracks from useTracks hook which includes placeholders
-    // Filter to only include camera tracks for our participants
-    const gridTracks = tracks
-      .filter((track) => track.source === Track.Source.Camera)
-      .filter((track) => participants.some((p) => p.identity === track.participant.identity))
-    
-    // Add placeholders for participants without tracks
-    const participantsWithoutTracks = participants.filter(
-      (p) => !gridTracks.some((track) => track.participant.identity === p.identity)
-    )
-    
-    return [
-      ...gridTracks,
-      ...participantsWithoutTracks.map((p) => ({
-        participant: p,
-        source: Track.Source.Camera,
-      } as { participant: typeof p; source: Track.Source }))
-    ]
-  }, [
-    layoutMode, 
-    // Use stable references - only recalculate when participant count or identities change
-    participants.length,
-    participants.map(p => p.identity).join(','),
-    // Only recalculate when track count changes, not on every track update
-    tracks.length,
-    tracks.filter(t => t.source === Track.Source.Camera).map(t => `${t.participant.identity}-${t.publication?.trackSid || 'placeholder'}`).join(',')
-  ])
 
   // Render layout based on layoutMode
   const renderLayout = () => {
     switch (layoutMode) {
       case 'grid':
-        // Grid layout: use LiveKit's GridLayout component
-        // Based on: https://github.com/livekit/components-js/blob/main/packages/react/src/prefabs/VideoConference.tsx
+        // Grid layout: all participants in a responsive grid
+        // If only one participant, show them full screen
         const participantCount = participants.length
         
-        // If only one participant, show them full screen
         if (participantCount === 1 && participants[0]) {
-          const singleTrackRef = getTrackForParticipant(participants[0].identity)
           return (
             <div className="h-full w-full">
-              {singleTrackRef ? (
-                <div className="relative h-full w-full">
-                  <ParticipantTile trackRef={singleTrackRef} />
-                  {/* Custom name overlay */}
-                  {(() => {
-                    const info = participantInfo[participants[0].identity]
-                    const displayName = formatParticipantName(info, participants[0])
-                    return (
-                      <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded pointer-events-none z-10">
-                        <p className="font-medium text-white text-xs md:text-sm">{displayName}</p>
-                      </div>
-                    )
-                  })()}
-                </div>
-              ) : (
-                renderParticipantTile(participants[0], true)
-              )}
+              {renderParticipantTile(participants[0], true)}
             </div>
           )
         }
         
-        // Use LiveKit's GridLayout component
+        // Manual grid with equal-sized tiles - use CSS grid for proper layout
+        // Calculate grid columns based on participant count (for desktop)
+        let gridCols = 2 // Default: 2 columns
+        if (participantCount === 1) {
+          gridCols = 1
+        } else if (participantCount === 2) {
+          gridCols = 2 // 2 participants: side by side
+        } else if (participantCount <= 4) {
+          gridCols = 2 // 3-4 participants: 2x2 grid
+        } else if (participantCount <= 6) {
+          gridCols = 3 // 5-6 participants: 3 columns
+        } else if (participantCount <= 9) {
+          gridCols = 3 // 7-9 participants: 3x3 grid
+        } else {
+          gridCols = 4 // 10+ participants: 4 columns
+        }
+        
+        // On mobile: stack vertically (1 column), on desktop: use calculated grid
         return (
           <>
             <style dangerouslySetInnerHTML={{
               __html: `
-                /* Hide default LiveKit participant names and metadata in grid layout */
-                .lk-grid-layout .lk-participant-name {
-                  display: none !important;
+                .grid-layout-mobile-stack {
+                  display: grid;
+                  grid-template-columns: repeat(1, 1fr);
+                  gap: 0.5rem;
                 }
-                .lk-grid-layout .lk-participant-metadata {
-                  display: none !important;
-                }
-                /* Force all videos in grid layout to use contain to prevent zooming/cropping */
-                .lk-grid-layout .lk-participant-media-video,
-                .lk-grid-layout video,
-                .lk-grid-layout .lk-participant-tile video {
-                  object-fit: contain !important;
-                  object-position: center !important;
-                  background-color: #000 !important;
-                  width: 100% !important;
-                  height: 100% !important;
-                }
-                /* Ensure portrait videos definitely use contain */
-                .lk-grid-layout .lk-participant-media-video[data-orientation='portrait'],
-                .lk-grid-layout video[data-orientation='portrait'],
-                .lk-grid-layout .lk-participant-tile video[data-orientation='portrait'] {
-                  object-fit: contain !important;
-                  object-position: center !important;
-                  background-color: #000 !important;
-                }
-                /* On mobile: stack vertically (1 column) */
-                @media (max-width: 767px) {
-                  .lk-grid-layout {
-                    grid-template-columns: repeat(1, 1fr) !important;
+                @media (min-width: 768px) {
+                  .grid-layout-mobile-stack {
+                    grid-template-columns: repeat(${gridCols}, 1fr) !important;
                   }
                 }
               `
             }} />
             <div 
-              className="h-full w-full p-2 md:p-4 overflow-y-auto"
-              style={{ minHeight: 0, minWidth: 0 }}
+              className="h-full w-full p-2 md:p-4 overflow-y-auto grid-layout-mobile-stack"
             >
-              <GridLayout tracks={gridTracksWithPlaceholders}>
-                <TrackRefContext.Consumer>
-                  {(trackRef) => {
-                    if (!trackRef) return <ParticipantTile />
-                    const participant = trackRef.participant
-                    const info = participantInfo[participant.identity]
-                    // Find the participant in the participants array to get the correct type
-                    const participantFromList = participants.find(p => p.identity === participant.identity)
-                    const displayName = formatParticipantName(info, participantFromList || participants[0])
-                    
-                    return (
-                      <div className="relative h-full w-full overflow-hidden" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <ParticipantTile trackRef={trackRef} />
-                        </div>
-                        {/* Custom name overlay using our formatted name - positioned to match LiveKit's metadata area */}
-                        <div className="absolute bottom-1 left-1 right-1 bg-black/70 backdrop-blur-sm px-2 py-1.5 rounded pointer-events-none z-10">
-                          <p className="font-medium text-white text-xs md:text-sm text-center truncate">{displayName}</p>
-                        </div>
-                      </div>
-                    )
+            {participants.map((participant) => (
+                <div 
+                  key={participant.identity} 
+                  className="w-full"
+                  style={{
+                    aspectRatio: '16/9',
+                    minWidth: 0,
                   }}
-                </TrackRefContext.Consumer>
-              </GridLayout>
-            </div>
+                >
+                  {renderParticipantTile(participant, false)}
+              </div>
+            ))}
+          </div>
           </>
         )
 
