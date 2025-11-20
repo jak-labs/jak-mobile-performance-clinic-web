@@ -214,6 +214,21 @@ function RoomContent({
   const localParticipant = room.localParticipant
   const remoteParticipants = Array.from(room.remoteParticipants.values())
   
+  // Handle room disconnect - navigate to schedule screen
+  useEffect(() => {
+    if (!room) return
+
+    const handleDisconnected = () => {
+      router.push('/')
+    }
+
+    room.on('disconnected', handleDisconnected)
+
+    return () => {
+      room.off('disconnected', handleDisconnected)
+    }
+  }, [room, router])
+  
   // Get all video tracks
   const tracks = useTracks([Track.Source.Camera, Track.Source.ScreenShare], {
     onlySubscribed: false,

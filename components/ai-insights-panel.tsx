@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Card } from "@/components/ui/card"
 import { Lightbulb } from "lucide-react"
 import { useRoomContext, useTracks } from "@livekit/components-react"
-import { DataPacket_Kind, Track } from "livekit-client"
+import { DataPacket_Kind, Track, ConnectionState } from "livekit-client"
 
 interface AIInsight {
   participantId: string
@@ -110,6 +110,11 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
     if (!room || !canvasRef.current) return
 
     const analyzeFrames = async () => {
+      // Only analyze if room is connected
+      if (!room || room.state !== ConnectionState.Connected) {
+        return
+      }
+
       const canvas = canvasRef.current
       if (!canvas) return
 
@@ -149,18 +154,26 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
           if (response.ok) {
             const data = await response.json()
             if (data.analysis) {
-              // Send insight via data channel (for other participants to see)
-              const message = JSON.stringify({
-                type: 'ai-insight',
-                participantId,
-                participantName,
-                ...data.analysis,
-              })
+              // Only publish data if room is connected
+              if (room.state === ConnectionState.Connected && room.localParticipant) {
+                try {
+                  // Send insight via data channel (for other participants to see)
+                  const message = JSON.stringify({
+                    type: 'ai-insight',
+                    participantId,
+                    participantName,
+                    ...data.analysis,
+                  })
 
-              room.localParticipant.publishData(
-                new TextEncoder().encode(message),
-                DataPacket_Kind.RELIABLE
-              )
+                  room.localParticipant.publishData(
+                    new TextEncoder().encode(message),
+                    DataPacket_Kind.RELIABLE
+                  )
+                } catch (error) {
+                  console.error('Error publishing data:', error)
+                  // Continue to update local state even if publish fails
+                }
+              }
 
               // Also update local state
               const newInsight: AIInsight = {
@@ -187,8 +200,8 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
       }
     }
 
-    // Analyze frames every 15 seconds (to reduce API calls)
-    analysisIntervalRef.current = setInterval(analyzeFrames, 15000)
+    // Analyze frames every 5 seconds
+    analysisIntervalRef.current = setInterval(analyzeFrames, 5000)
 
     return () => {
       if (analysisIntervalRef.current) {
@@ -217,7 +230,7 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
         <div className="text-sm text-muted-foreground text-center py-8">
           <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p>AI insights will appear here as participants move</p>
-          <p className="text-xs mt-2">Analysis runs every 15 seconds</p>
+          <p className="text-xs mt-2">Analysis runs every 5 seconds</p>
         </div>
       ) : (
         <div className="space-y-4">
