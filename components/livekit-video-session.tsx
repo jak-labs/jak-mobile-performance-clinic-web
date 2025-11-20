@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone, Grid3x3, User, LayoutGrid } from "lucide-react"
@@ -24,11 +24,13 @@ import {
   FocusLayout,
   FocusLayoutContainer,
   CarouselLayout,
+  ControlBar,
 } from "@livekit/components-react"
 import "@livekit/components-styles"
 import { Track, TrackPublication } from "livekit-client"
 import MetricsDashboard from "./metrics-dashboard"
 import { useV2 } from "@/lib/v2-context"
+// import { CustomVideoControls } from "./custom-video-controls" // Custom controls - commented out for testing LiveKit standard controls
 
 type LayoutMode = 'default' | 'grid' | 'spotlight' | 'one-on-one'
 
@@ -216,41 +218,41 @@ function RoomContent({
     onlySubscribed: false,
   })
 
-  // Track mic and camera states reactively
-  const [isMicMuted, setIsMicMuted] = useState(true)
-  const [isCameraOff, setIsCameraOff] = useState(true)
+  // Custom controls state - commented out for testing LiveKit standard controls
+  // const [isMicMuted, setIsMicMuted] = useState(true)
+  // const [isCameraOff, setIsCameraOff] = useState(true)
 
-  useEffect(() => {
-    const updateTrackStates = () => {
-      const micPublications = Array.from(localParticipant.audioTrackPublications.values())
-      const cameraPublications = Array.from(localParticipant.videoTrackPublications.values())
-      const micPublication = micPublications.find(pub => pub.source === Track.Source.Microphone)
-      const cameraPublication = cameraPublications.find(pub => pub.source === Track.Source.Camera)
-      
-      setIsMicMuted(micPublication ? micPublication.isMuted : true)
-      setIsCameraOff(!cameraPublication || !cameraPublication.isSubscribed || cameraPublication.isMuted)
-    }
+  // useEffect(() => {
+  //   const updateTrackStates = () => {
+  //     const micPublications = Array.from(localParticipant.audioTrackPublications.values())
+  //     const cameraPublications = Array.from(localParticipant.videoTrackPublications.values())
+  //     const micPublication = micPublications.find(pub => pub.source === Track.Source.Microphone)
+  //     const cameraPublication = cameraPublications.find(pub => pub.source === Track.Source.Camera)
+  //     
+  //     setIsMicMuted(micPublication ? micPublication.isMuted : true)
+  //     setIsCameraOff(!cameraPublication || !cameraPublication.isSubscribed || cameraPublication.isMuted)
+  //   }
 
-    updateTrackStates()
+  //   updateTrackStates()
 
-    // Listen for track publication changes
-    const handleTrackPublished = () => updateTrackStates()
-    const handleTrackUnpublished = () => updateTrackStates()
-    const handleTrackMuted = () => updateTrackStates()
-    const handleTrackUnmuted = () => updateTrackStates()
+  //   // Listen for track publication changes
+  //   const handleTrackPublished = () => updateTrackStates()
+  //   const handleTrackUnpublished = () => updateTrackStates()
+  //   const handleTrackMuted = () => updateTrackStates()
+  //   const handleTrackUnmuted = () => updateTrackStates()
 
-    localParticipant.on('trackPublished', handleTrackPublished)
-    localParticipant.on('trackUnpublished', handleTrackUnpublished)
-    localParticipant.on('trackMuted', handleTrackMuted)
-    localParticipant.on('trackUnmuted', handleTrackUnmuted)
+  //   localParticipant.on('trackPublished', handleTrackPublished)
+  //   localParticipant.on('trackUnpublished', handleTrackUnpublished)
+  //   localParticipant.on('trackMuted', handleTrackMuted)
+  //   localParticipant.on('trackUnmuted', handleTrackUnmuted)
 
-    return () => {
-      localParticipant.off('trackPublished', handleTrackPublished)
-      localParticipant.off('trackUnpublished', handleTrackUnpublished)
-      localParticipant.off('trackMuted', handleTrackMuted)
-      localParticipant.off('trackUnmuted', handleTrackUnmuted)
-    }
-  }, [localParticipant])
+  //   return () => {
+  //     localParticipant.off('trackPublished', handleTrackPublished)
+  //     localParticipant.off('trackUnpublished', handleTrackUnpublished)
+  //     localParticipant.off('trackMuted', handleTrackMuted)
+  //     localParticipant.off('trackUnmuted', handleTrackUnmuted)
+  //   }
+  // }, [localParticipant])
 
   // Fetch user role to identify coach
   useEffect(() => {
@@ -790,6 +792,39 @@ function RoomContent({
     }
   }
 
+  // Memoize grid tracks to prevent unnecessary recalculations that cause layout resizing
+  // Use a stable key based on participant identities and track sources to prevent unnecessary recalculations
+  const gridTracksWithPlaceholders = useMemo(() => {
+    if (layoutMode !== 'grid') return []
+    
+    // Get all camera tracks - use tracks from useTracks hook which includes placeholders
+    // Filter to only include camera tracks for our participants
+    const gridTracks = tracks
+      .filter((track) => track.source === Track.Source.Camera)
+      .filter((track) => participants.some((p) => p.identity === track.participant.identity))
+    
+    // Add placeholders for participants without tracks
+    const participantsWithoutTracks = participants.filter(
+      (p) => !gridTracks.some((track) => track.participant.identity === p.identity)
+    )
+    
+    return [
+      ...gridTracks,
+      ...participantsWithoutTracks.map((p) => ({
+        participant: p,
+        source: Track.Source.Camera,
+      } as { participant: typeof p; source: Track.Source }))
+    ]
+  }, [
+    layoutMode, 
+    // Use stable references - only recalculate when participant count or identities change
+    participants.length,
+    participants.map(p => p.identity).join(','),
+    // Only recalculate when track count changes, not on every track update
+    tracks.length,
+    tracks.filter(t => t.source === Track.Source.Camera).map(t => `${t.participant.identity}-${t.publication?.trackSid || 'placeholder'}`).join(',')
+  ])
+
   // Render layout based on layoutMode
   const renderLayout = () => {
     switch (layoutMode) {
@@ -823,25 +858,6 @@ function RoomContent({
             </div>
           )
         }
-        
-        // Get all camera tracks - use tracks from useTracks hook which includes placeholders
-        // Filter to only include camera tracks for our participants
-        const gridTracks = tracks
-          .filter((track) => track.source === Track.Source.Camera)
-          .filter((track) => participants.some((p) => p.identity === track.participant.identity))
-        
-        // Add placeholders for participants without tracks
-        const participantsWithoutTracks = participants.filter(
-          (p) => !gridTracks.some((track) => track.participant.identity === p.identity)
-        )
-        
-        const gridTracksWithPlaceholders = [
-          ...gridTracks,
-          ...participantsWithoutTracks.map((p) => ({
-            participant: p,
-            source: Track.Source.Camera,
-          } as { participant: typeof p; source: Track.Source }))
-        ]
         
         // Use LiveKit's GridLayout component
         return (
@@ -881,7 +897,10 @@ function RoomContent({
                 }
               `
             }} />
-            <div className="h-full w-full p-2 md:p-4 overflow-y-auto">
+            <div 
+              className="h-full w-full p-2 md:p-4 overflow-y-auto"
+              style={{ minHeight: 0, minWidth: 0 }}
+            >
               <GridLayout tracks={gridTracksWithPlaceholders}>
                 <TrackRefContext.Consumer>
                   {(trackRef) => {
@@ -1176,62 +1195,49 @@ function RoomContent({
             )}
           </div>
 
-        {/* Controls - White pill-shaped bar with simple black icons */}
+        {/* Custom Controls - Commented out for testing LiveKit standard controls */}
+        {/* <CustomVideoControls sessionDuration={sessionDuration} /> */}
+
+        {/* Standard LiveKit ControlBar */}
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            /* Make ControlBar icons visible - light color on dark background */
+            .lk-control-bar button {
+              color: white !important;
+            }
+            .lk-control-bar button svg {
+              color: white !important;
+              fill: white !important;
+            }
+            .lk-control-bar button:hover {
+              background-color: rgba(255, 255, 255, 0.1) !important;
+            }
+            .lk-control-bar {
+              background-color: rgba(0, 0, 0, 0.7) !important;
+              backdrop-filter: blur(10px);
+              border-radius: 9999px;
+              padding: 0.75rem 1rem;
+              border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+          `
+        }} />
         <div 
-          className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 px-4 md:px-6 py-2.5 md:py-3 rounded-full z-50 max-w-[calc(100vw-2rem)] md:max-w-none bg-white shadow-lg"
+          className="absolute left-1/2 -translate-x-1/2 z-50"
           style={{ 
             bottom: 'calc(3vh + env(safe-area-inset-bottom, 0))'
           }}
         >
-          <button
-            onClick={async () => {
-              const micPub = Array.from(localParticipant.audioTrackPublications.values())
-                .find(pub => pub.source === Track.Source.Microphone)
-              if (micPub?.track) {
-                if (micPub.isMuted) {
-                  await micPub.track.unmute()
-                } else {
-                  await micPub.track.mute()
-                }
-              }
+          <ControlBar 
+            controls={{
+              microphone: true,
+              camera: true,
+              screenShare: true,
+              leave: true,
+              chat: false,
+              settings: false,
             }}
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
-          >
-            {isMicMuted ? (
-              <MicOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-            ) : (
-              <Mic className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-            )}
-          </button>
-          <button
-            onClick={async () => {
-              const cameraPub = Array.from(localParticipant.videoTrackPublications.values())
-                .find(pub => pub.source === Track.Source.Camera)
-              if (cameraPub?.track) {
-                if (cameraPub.isMuted) {
-                  await cameraPub.track.unmute()
-                } else {
-                  await cameraPub.track.mute()
-                }
-              }
-            }}
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
-          >
-            {isCameraOff ? (
-              <VideoOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-            ) : (
-              <Video className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-            )}
-          </button>
-          <button
-            onClick={async () => {
-              await room.disconnect()
-              router.push('/')
-            }}
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60 rounded-full h-10 w-10 md:h-12 md:w-12"
-          >
-            <PhoneOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-          </button>
+            variation="minimal"
+          />
         </div>
 
         {/* Session info - Clean, minimal badges */}
