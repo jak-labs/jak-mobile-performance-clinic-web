@@ -180,6 +180,13 @@
     stroke: currentColor !important;
     fill: none !important;
   }
+
+  /* Fix date input width on iOS to prevent overflow */
+  input[type="date"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
 }
 
 /* Adding custom blink animation for connection status indicator */

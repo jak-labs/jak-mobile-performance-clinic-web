@@ -243,7 +243,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-6 py-6">
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
@@ -297,7 +297,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
               </div>
 
               <div className="flex flex-col xl:flex-row gap-4">
-                <div className="space-y-2 flex-1 min-w-0 w-full">
+                <div className="space-y-2 flex-1 min-w-0">
                   <Label htmlFor="date">Date *</Label>
                   <Input
                     id="date"
@@ -305,17 +305,18 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                     value={formData.date}
                     onChange={(e) => handleInputChange("date", e.target.value)}
                     required
-                    className="w-full max-w-full"
+                    className="w-full"
+                    style={{ boxSizing: 'border-box' }}
                   />
                 </div>
-                <div className="space-y-2 flex-1 min-w-0 w-full">
+                <div className="space-y-2 flex-1 min-w-0">
                   <Label htmlFor="time">Time *</Label>
                   <Select
                     value={formData.time}
                     onValueChange={(value) => handleInputChange("time", value)}
                     required
                   >
-                    <SelectTrigger id="time" className="w-full max-w-full">
+                    <SelectTrigger id="time" className="w-full">
                       <SelectValue placeholder="Select time" />
                     </SelectTrigger>
                     <SelectContent className="max-h-[300px]">
