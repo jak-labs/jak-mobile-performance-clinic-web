@@ -10,25 +10,91 @@ interface AIInsight {
   participantId: string
   participantName: string
   exerciseName?: string
+  postureMetrics?: {
+    spineLean?: string
+    neckFlexion?: string
+    shoulderAlignment?: string
+    pelvicSway?: string
+    additionalMetrics?: string[]
+  }
+  performanceInterpretation?: string
+  performanceImpact?: string[]
   balanceScore: number
   symmetryScore: number
-  insights: string
-  recommendations: string
+  posturalEfficiency?: number
+  riskLevel?: string
+  riskDescription?: string
+  targetedRecommendations?: string[]
   timestamp: string
 }
 
 interface AIInsightsPanelProps {
   participants: Array<{ identity: string; name?: string }>
   participantInfo: Record<string, { firstName: string; lastName: string; fullName: string }>
+  sessionOwnerId?: string | null
+  sessionId?: string | null
 }
 
-export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPanelProps) {
+export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId }: AIInsightsPanelProps) {
   const room = useRoomContext()
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true })
   const [insights, setInsights] = useState<AIInsight[]>([])
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
+  const [subjectName, setSubjectName] = useState<string | null>(null)
+
+  // Fetch subject name from session schedule
+  useEffect(() => {
+    if (!sessionId) return
+
+    const fetchSubjectName = async () => {
+      try {
+        // Fetch session data to get subject_id
+        const sessionResponse = await fetch(`/api/sessions/${sessionId}`)
+        if (!sessionResponse.ok) {
+          console.error('[AI Insights] Failed to fetch session data')
+          return
+        }
+
+        const sessionData = await sessionResponse.json()
+        const session = sessionData.session
+
+        // Get subject_id (for single/mocap) or first subject_id from subject_ids (for group)
+        const subjectId = session.subject_id || (session.subject_ids && session.subject_ids[0])
+
+        if (!subjectId) {
+          console.log('[AI Insights] No subject_id found in session')
+          return
+        }
+
+        // Fetch subject name
+        const subjectResponse = await fetch(`/api/subjects/${subjectId}`)
+        if (!subjectResponse.ok) {
+          console.error('[AI Insights] Failed to fetch subject data')
+          return
+        }
+
+        const subjectData = await subjectResponse.json()
+        const subject = subjectData.subject
+
+        // Get subject name from various possible fields
+        const name = subject.full_name || 
+                     subject.name || 
+                     (subject.f_name && subject.l_name ? `${subject.f_name} ${subject.l_name}` : null) ||
+                     subjectId
+
+        if (name) {
+          setSubjectName(name)
+          console.log(`[AI Insights] Subject name set to: ${name}`)
+        }
+      } catch (error) {
+        console.error('[AI Insights] Error fetching subject name:', error)
+      }
+    }
+
+    fetchSubjectName()
+  }, [sessionId])
 
   // Listen for data channel messages from AI agent
   useEffect(() => {
@@ -112,18 +178,30 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
     const analyzeFrames = async () => {
       // Only analyze if room is connected
       if (!room || room.state !== ConnectionState.Connected) {
+        console.log('[AI Insights] Room not connected, skipping analysis')
         return
       }
 
       const canvas = canvasRef.current
-      if (!canvas) return
+      if (!canvas) {
+        console.log('[AI Insights] Canvas not available')
+        return
+      }
 
       const ctx = canvas.getContext('2d')
-      if (!ctx) return
+      if (!ctx) {
+        console.log('[AI Insights] Canvas context not available')
+        return
+      }
 
-      // Analyze each participant's video
+      const videoElementsCount = videoElementsRef.current.size
+      console.log(`[AI Insights] Starting analysis - ${videoElementsCount} video elements, sessionOwnerId: ${sessionOwnerId}`)
+
+      // Analyze each participant's video (analyze whoever is in session - for mocap, subject is not in session)
       for (const [participantId, videoElement] of videoElementsRef.current.entries()) {
         if (!videoElement || videoElement.readyState < 2) continue
+
+        console.log(`[AI Insights] Analyzing participant: ${participantId}`)
 
         try {
           canvas.width = videoElement.videoWidth || 640
@@ -136,9 +214,8 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
           // Convert to base64
           const imageBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
 
-          // Get participant name
-          const info = participantInfo[participantId]
-          const participantName = info?.fullName || participantId
+          // Use subject name from schedule if available, otherwise use participant name
+          const displayName = subjectName || participantInfo[participantId]?.fullName || participantId
 
           // Send for analysis
           const response = await fetch('/api/ai/analyze-movement', {
@@ -146,7 +223,7 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               imageBase64,
-              participantName,
+              participantName: displayName,
               participantId,
             }),
           })
@@ -161,7 +238,7 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
                   const message = JSON.stringify({
                     type: 'ai-insight',
                     participantId,
-                    participantName,
+                    participantName: displayName,
                     ...data.analysis,
                   })
 
@@ -178,11 +255,16 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
               // Also update local state
               const newInsight: AIInsight = {
                 participantId,
-                participantName,
-                balanceScore: data.analysis.balanceScore,
-                symmetryScore: data.analysis.symmetryScore,
-                insights: data.analysis.insights,
-                recommendations: data.analysis.recommendations,
+                participantName: displayName,
+                postureMetrics: data.analysis.postureMetrics,
+                performanceInterpretation: data.analysis.performanceInterpretation,
+                performanceImpact: data.analysis.performanceImpact,
+                balanceScore: data.analysis.balanceScore || 0,
+                symmetryScore: data.analysis.symmetryScore || 0,
+                posturalEfficiency: data.analysis.posturalEfficiency,
+                riskLevel: data.analysis.riskLevel,
+                riskDescription: data.analysis.riskDescription,
+                targetedRecommendations: data.analysis.targetedRecommendations,
                 timestamp: data.analysis.timestamp,
               }
 
@@ -195,12 +277,16 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
             }
           }
         } catch (error) {
-          console.error(`Error analyzing frame for ${participantId}:`, error)
+          console.error(`[AI Insights] Error analyzing frame for ${participantId}:`, error)
         }
       }
+      
+      console.log(`[AI Insights] Analysis cycle complete`)
     }
 
     // Analyze frames every 5 seconds
+    console.log('[AI Insights] Setting up analysis interval')
+    analyzeFrames() // Run once immediately
     analysisIntervalRef.current = setInterval(analyzeFrames, 5000)
 
     return () => {
@@ -208,7 +294,7 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
         clearInterval(analysisIntervalRef.current)
       }
     }
-  }, [room, participantInfo, tracks])
+  }, [room, participantInfo, tracks, subjectName])
 
   // Group insights by participant
   const insightsByParticipant = insights.reduce((acc, insight) => {
@@ -238,47 +324,150 @@ export function AIInsightsPanel({ participants, participantInfo }: AIInsightsPan
             const latestInsight = participantInsights[participantInsights.length - 1]
             const participantName = latestInsight.participantName
 
+            // Get risk level color
+            const getRiskColor = (riskLevel?: string) => {
+              if (!riskLevel) return 'bg-gray-500'
+              const level = riskLevel.toLowerCase()
+              if (level === 'high') return 'bg-red-500'
+              if (level === 'moderate') return 'bg-yellow-500'
+              return 'bg-green-500'
+            }
+
+            const getRiskEmoji = (riskLevel?: string) => {
+              if (!riskLevel) return '⚪'
+              const level = riskLevel.toLowerCase()
+              if (level === 'high') return '🔴'
+              if (level === 'moderate') return '🟡'
+              return '🟢'
+            }
+
             return (
               <Card key={participantId} className="p-4">
-                <div className="space-y-3">
+                <div className="space-y-4">
+                  {/* Header */}
                   <div className="flex items-center gap-2 mb-2">
                     <Lightbulb className="h-4 w-4 text-yellow-500" />
-                    <h4 className="font-semibold text-sm">{participantName}</h4>
+                    <h4 className="font-semibold text-base">🔥 AI Movement Summary – {participantName}</h4>
                   </div>
 
                   {latestInsight.exerciseName && (
-                    <h5 className="font-medium text-base text-gray-900 dark:text-gray-100">
+                    <h5 className="font-medium text-sm text-muted-foreground">
                       {latestInsight.exerciseName}
                     </h5>
                   )}
 
-                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Lightbulb className="h-3 w-3 text-yellow-500" />
-                      <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                        AI Summary
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-800 dark:text-gray-200">
-                      {latestInsight.insights}
-                    </p>
-                  </div>
-
-                  {latestInsight.balanceScore > 0 && (
-                    <div className="text-xs text-gray-600 dark:text-gray-400">
-                      Balance Score: <span className="font-semibold">{latestInsight.balanceScore}</span>
-                      {latestInsight.symmetryScore > 0 && (
-                        <>
-                          {' • '}
-                          Symmetry: <span className="font-semibold">{latestInsight.symmetryScore}</span>
-                        </>
-                      )}
+                  {/* Posture Metrics */}
+                  {latestInsight.postureMetrics && Object.keys(latestInsight.postureMetrics).length > 0 && (
+                    <div className="space-y-2">
+                      <h5 className="font-semibold text-sm">Posture Metrics</h5>
+                      <div className="space-y-1 text-sm">
+                        {latestInsight.postureMetrics.spineLean && (
+                          <p className="text-muted-foreground">
+                            <span className="font-medium">Spine Lean:</span> {latestInsight.postureMetrics.spineLean}
+                          </p>
+                        )}
+                        {latestInsight.postureMetrics.neckFlexion && (
+                          <p className="text-muted-foreground">
+                            <span className="font-medium">Neck Flexion:</span> {latestInsight.postureMetrics.neckFlexion}
+                          </p>
+                        )}
+                        {latestInsight.postureMetrics.shoulderAlignment && (
+                          <p className="text-muted-foreground">
+                            <span className="font-medium">Shoulder Alignment:</span> {latestInsight.postureMetrics.shoulderAlignment}
+                          </p>
+                        )}
+                        {latestInsight.postureMetrics.pelvicSway && (
+                          <p className="text-muted-foreground">
+                            <span className="font-medium">Pelvic Sway:</span> {latestInsight.postureMetrics.pelvicSway}
+                          </p>
+                        )}
+                        {latestInsight.postureMetrics.additionalMetrics?.map((metric, idx) => (
+                          <p key={idx} className="text-muted-foreground">{metric}</p>
+                        ))}
+                      </div>
                     </div>
                   )}
 
-                  {latestInsight.recommendations && (
-                    <div className="text-xs text-gray-600 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
-                      <span className="font-semibold">Recommendations:</span> {latestInsight.recommendations}
+                  {/* Performance Interpretation */}
+                  {latestInsight.performanceInterpretation && (
+                    <div className="space-y-2">
+                      <h5 className="font-semibold text-sm">Performance Interpretation</h5>
+                      <p className="text-sm text-muted-foreground">
+                        {latestInsight.performanceInterpretation}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Performance Impact */}
+                  {latestInsight.performanceImpact && latestInsight.performanceImpact.length > 0 && (
+                    <div className="space-y-2">
+                      <h5 className="font-semibold text-sm">Performance Impact</h5>
+                      <ul className="space-y-1 text-sm text-muted-foreground">
+                        {latestInsight.performanceImpact.map((impact, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-destructive mt-0.5">•</span>
+                            <span>{impact}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Scores */}
+                  {(latestInsight.balanceScore > 0 || latestInsight.symmetryScore > 0 || latestInsight.posturalEfficiency) && (
+                    <div className="space-y-2">
+                      <h5 className="font-semibold text-sm">Scores</h5>
+                      <div className="flex flex-wrap gap-4 text-sm">
+                        {latestInsight.balanceScore > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Balance Score: </span>
+                            <span className="font-semibold">{latestInsight.balanceScore}</span>
+                          </div>
+                        )}
+                        {latestInsight.symmetryScore > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Symmetry: </span>
+                            <span className="font-semibold">{latestInsight.symmetryScore}</span>
+                          </div>
+                        )}
+                        {latestInsight.posturalEfficiency && (
+                          <div>
+                            <span className="text-muted-foreground">Postural Efficiency: </span>
+                            <span className="font-semibold">{latestInsight.posturalEfficiency}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Risk Level */}
+                  {latestInsight.riskLevel && (
+                    <div className="space-y-2">
+                      <h5 className="font-semibold text-sm">Risk Level</h5>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{getRiskEmoji(latestInsight.riskLevel)}</span>
+                        <span className={`px-2 py-1 rounded text-xs font-semibold text-white ${getRiskColor(latestInsight.riskLevel)}`}>
+                          {latestInsight.riskLevel}
+                        </span>
+                        {latestInsight.riskDescription && (
+                          <span className="text-sm text-muted-foreground">{latestInsight.riskDescription}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Targeted Recommendations */}
+                  {latestInsight.targetedRecommendations && latestInsight.targetedRecommendations.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-border">
+                      <h5 className="font-semibold text-sm">Targeted Recommendations</h5>
+                      <ul className="space-y-1 text-sm text-muted-foreground">
+                        {latestInsight.targetedRecommendations.map((rec, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-primary mt-0.5">•</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>

@@ -1332,6 +1332,8 @@ function RoomContent({
                 name: participantInfo[p.identity]?.fullName || p.name || p.identity
               }))}
               participantInfo={participantInfo}
+              sessionOwnerId={sessionOwnerId}
+              sessionId={sessionId}
             />
           </TabsContent>
         </Tabs>
