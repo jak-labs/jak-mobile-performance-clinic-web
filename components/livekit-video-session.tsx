@@ -569,6 +569,33 @@ function RoomContent({
         console.log('[Client] Final participants list:', participantsList)
         setExpectedParticipants(participantsList)
         expectedParticipantsFetchedRef.current = true
+        
+        // Immediately update connection status after fetching expected participants
+        const allParticipantIdentities = new Set<string>()
+        if (localParticipant?.identity) {
+          allParticipantIdentities.add(localParticipant.identity)
+        }
+        remoteParticipants.forEach(p => {
+          if (p.identity) {
+            allParticipantIdentities.add(p.identity)
+          }
+        })
+        participants.forEach(p => {
+          if (p.identity) {
+            allParticipantIdentities.add(p.identity)
+          }
+        })
+        const identitiesArray = Array.from(allParticipantIdentities)
+        
+        console.log('[Client] Immediately updating connection status after fetch')
+        console.log('[Client] Connected identities:', identitiesArray)
+        
+        const updatedList = participantsList.map(exp => ({
+          ...exp,
+          isConnected: identitiesArray.includes(exp.id)
+        }))
+        console.log('[Client] Updated list with connection status:', updatedList)
+        setExpectedParticipants(updatedList)
       } catch (error) {
         console.error("[Client] Error fetching expected participants:", error)
         // Don't clear existing participants on error
@@ -584,25 +611,63 @@ function RoomContent({
 
   // Update connection status when participants change (without re-fetching)
   useEffect(() => {
-    if (expectedParticipantIdsRef.current.length > 0 && participants.length > 0) {
+    console.log('[Client] Connection status useEffect triggered')
+    console.log('[Client] expectedParticipantIdsRef.current:', expectedParticipantIdsRef.current)
+    console.log('[Client] participants.length:', participants.length)
+    
+    if (expectedParticipantIdsRef.current.length > 0) {
       // Get all participant identities including local participant
-      const allParticipantIdentities = [
-        localParticipant?.identity,
-        ...remoteParticipants.map(p => p.identity)
-      ].filter(Boolean) as string[]
+      const allParticipantIdentities = new Set<string>()
+      
+      if (localParticipant?.identity) {
+        allParticipantIdentities.add(localParticipant.identity)
+        console.log('[Client] Added local participant:', localParticipant.identity)
+      }
+      
+      remoteParticipants.forEach(p => {
+        if (p.identity) {
+          allParticipantIdentities.add(p.identity)
+          console.log('[Client] Added remote participant:', p.identity)
+        }
+      })
+      
+      // Also check the participants array directly
+      participants.forEach(p => {
+        if (p.identity) {
+          allParticipantIdentities.add(p.identity)
+        }
+      })
+      
+      const identitiesArray = Array.from(allParticipantIdentities)
       
       console.log('[Client] Updating connection status.')
-      console.log('[Client] All connected participant identities:', allParticipantIdentities)
+      console.log('[Client] Local participant identity:', localParticipant?.identity)
+      console.log('[Client] Remote participant identities:', remoteParticipants.map(p => p.identity))
+      console.log('[Client] All participants identities:', participants.map(p => p.identity))
+      console.log('[Client] All connected participant identities (combined):', identitiesArray)
       console.log('[Client] Expected participant IDs:', expectedParticipantIdsRef.current)
       
-      setExpectedParticipants(prev => prev.map(exp => {
-        const isConnected = allParticipantIdentities.some(identity => identity === exp.id)
-        console.log(`[Client] Checking ${exp.id} (${exp.name}): ${isConnected ? '✅ Connected' : '❌ Not Connected'}`)
-        return {
-          ...exp,
-          isConnected
-        }
-      }))
+      setExpectedParticipants(prev => {
+        console.log('[Client] Current expected participants before update:', prev)
+        const updated = prev.map(exp => {
+          const isConnected = identitiesArray.includes(exp.id)
+          console.log(`[Client] Checking ${exp.id} (${exp.name}): ${isConnected ? '✅ Connected' : '❌ Not Connected'}`)
+          if (isConnected) {
+            console.log(`[Client] ✅ Match found! ${exp.name} is connected`)
+          } else {
+            console.log(`[Client] ❌ No match. Looking for "${exp.id}" in:`, identitiesArray)
+            console.log(`[Client] Comparison: "${exp.id}" === any of:`, identitiesArray.map(id => `"${id}"`))
+          }
+          return {
+            ...exp,
+            isConnected
+          }
+        })
+        console.log('[Client] Updated expected participants:', updated)
+        return updated
+      })
+    } else {
+      console.log('[Client] Skipping connection status update - no expected participants yet')
     }
   }, [participants.length, localParticipant?.identity, remoteParticipants.length])
   
@@ -1084,6 +1149,9 @@ function RoomContent({
                   const connectedParticipant = participants.find(p => p.identity === expected.id)
                   const info = participantInfo[expected.id]
                   
+                  // Check if this participant is the coach
+                  const isCoach = sessionOwnerId && expected.id === sessionOwnerId
+                  
                   // Use name from expected participants list (already fetched), or from participantInfo, or fallback
                   let displayName = expected.name
                   if (info?.fullName) {
@@ -1100,18 +1168,23 @@ function RoomContent({
                   const firstLetter = firstName 
                     ? firstName.charAt(0).toUpperCase()
                     : (displayName && displayName !== expected.id ? displayName.charAt(0).toUpperCase() : expected.id.charAt(0).toUpperCase())
-                
-                return (
+                  
+                  return (
                     <Card key={expected.id} className="p-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                        <span className="text-xs font-medium">
-                          {firstLetter}
-                        </span>
-                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                          <span className="text-xs font-medium">
+                            {firstLetter}
+                          </span>
+                        </div>
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{displayName}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm">{displayName}</span>
+                            {isCoach && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium">
+                                Coach
+                              </span>
+                            )}
                             {expected.isConnected ? (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-600 dark:text-green-400">
                                 Connected
@@ -1121,12 +1194,12 @@ function RoomContent({
                                 Not Joined
                               </span>
                             )}
-                    </div>
+                          </div>
                         </div>
-                </div>
-              </Card>
-                )
-              })}
+                      </div>
+                    </Card>
+                  )
+                })}
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">No participants found</div>
