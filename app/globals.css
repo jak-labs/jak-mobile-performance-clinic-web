@@ -187,6 +187,21 @@
     max-width: 100% !important;
     box-sizing: border-box !important;
   }
+
+  /* Force full width for form inputs in AddClientPanel */
+  [data-slot="input"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Force full width for select triggers - override w-fit */
+  [data-slot="select-trigger"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+    box-sizing: border-box !important;
+  }
 }
 
 /* Adding custom blink animation for connection status indicator */

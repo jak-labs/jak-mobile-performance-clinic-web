@@ -2,7 +2,15 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
-import { ChevronRight, Calendar, Users, LinkIcon, Loader2 } from "lucide-react"
+import { ChevronRight, Calendar, Users, LinkIcon, Loader2, UserPlus } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import AddClientPanel from "@/components/add-client-panel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -43,6 +51,7 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [generatedLink, setGeneratedLink] = useState("")
+  const [isAddClientOpen, setIsAddClientOpen] = useState(false)
 
   // Fetch clients when panel opens
   useEffect(() => {
@@ -389,13 +398,29 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
                 <h3>Select Clients *</h3>
               </div>
 
-              <p className="text-sm text-muted-foreground">
-                {formData.sessionType === "virtual-1:1" || formData.sessionType === "mocap-1:1"
-                  ? formData.sessionType === "mocap-1:1"
-                    ? "Select one client for this In-Person Motion Capture session"
-                    : "Select one client for this 1:1 session"
-                  : "Select multiple clients for this group session"}
-              </p>
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground flex-1">
+                  {formData.sessionType === "virtual-1:1" || formData.sessionType === "mocap-1:1"
+                    ? formData.sessionType === "mocap-1:1"
+                      ? "Select one client for this In-Person Motion Capture session"
+                      : "Select one client for this 1:1 session"
+                    : "Select multiple clients for this group session"}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setIsAddClientOpen(true)
+                  }}
+                  className="flex items-center gap-2 border-2 border-border dark:border-gray-400/50 whitespace-nowrap shrink-0 hover:bg-accent hover:border-accent-foreground/20"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Add New Client
+                </Button>
+              </div>
 
               <div className="space-y-2 max-h-64 overflow-y-auto border border-border dark:border-gray-400/50 rounded-lg p-3">
                 {isLoadingClients ? (
@@ -478,6 +503,27 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
           </form>
         </div>
       </div>
+
+      {isAddClientOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm" 
+            onClick={() => setIsAddClientOpen(false)}
+          />
+          <div className="relative z-[101] w-full max-w-2xl max-h-[90vh] overflow-hidden bg-muted border-2 border-border rounded-lg shadow-xl">
+            <div className="h-full w-full">
+              <AddClientPanel
+                isOpen={true}
+                onClose={() => setIsAddClientOpen(false)}
+                onClientAdded={() => {
+                  setIsAddClientOpen(false)
+                  fetchClients() // Refresh the client list
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

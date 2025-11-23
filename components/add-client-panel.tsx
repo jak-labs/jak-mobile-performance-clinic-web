@@ -116,7 +116,7 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
     <div
       className={`relative transition-all duration-300 ease-in-out ${
         isOpen ? "w-[40%]" : "w-0"
-      } border-l border-border bg-muted`}
+      } border-l border-border bg-muted w-full`}
     >
       {isOpen && (
         <Button
@@ -129,8 +129,8 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
         </Button>
       )}
 
-      <div className="h-full flex flex-col">
-        <div className="sticky top-0 z-10 bg-muted border-b border-border/30 px-6 py-4">
+      <div className="h-full flex flex-col w-full">
+        <div className="sticky top-0 z-10 bg-muted border-b border-border/30 px-6 py-4 w-full">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Add New Client</h2>
             <p className="text-sm text-muted-foreground mt-1">
@@ -139,7 +139,7 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-6 py-6 w-full">
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
@@ -152,15 +152,15 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
               <AlertDescription className="text-green-800">{success}</AlertDescription>
             </Alert>
           )}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6 w-full">
             {/* Client Information Section */}
-            <div className="space-y-4">
+            <div className="space-y-4 w-full">
               <div className="flex items-center gap-2 text-lg font-semibold">
                 <User className="size-5" />
                 <h3>Client Information</h3>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 w-full">
                 <Label htmlFor="name">Full Name *</Label>
                 <Input
                   id="name"
@@ -168,10 +168,12 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
                   value={formData.name}
                   onChange={(e) => handleInputChange("name", e.target.value)}
                   required
+                  className="w-full"
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 w-full">
                 <Label htmlFor="email">Email Address *</Label>
                 <Input
                   id="email"
@@ -180,16 +182,18 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
                   value={formData.email}
                   onChange={(e) => handleInputChange("email", e.target.value)}
                   required
+                  className="w-full"
+                  style={{ width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 w-full">
                 <Label htmlFor="sportType">Sport Type</Label>
                 <Select value={formData.sportType} onValueChange={(value) => handleInputChange("sportType", value)}>
-                  <SelectTrigger id="sportType">
+                  <SelectTrigger id="sportType" className="!w-full">
                     <SelectValue placeholder="Select a sport" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="!z-[200]" position="popper" style={{ zIndex: 200 }}>
                     <SelectItem value="basketball">Basketball</SelectItem>
                     <SelectItem value="football">Football</SelectItem>
                     <SelectItem value="soccer">Soccer</SelectItem>
@@ -224,7 +228,7 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
                 </Select>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 w-full">
                 <Label htmlFor="notes">Client Notes</Label>
                 <Textarea
                   id="notes"
@@ -232,7 +236,8 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
                   value={formData.notes}
                   onChange={(e) => handleInputChange("notes", e.target.value)}
                   rows={4}
-                  className="resize-none"
+                  className="resize-none w-full"
+                  style={{ width: '100%' }}
                 />
               </div>
             </div>
@@ -290,6 +295,7 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
                     onChange={(e) => handleInputChange("cardNumber", e.target.value)}
                     maxLength={19}
                     required
+                    className="w-full"
                   />
                 </div>
 
@@ -303,6 +309,7 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
                       onChange={(e) => handleInputChange("cardExpiry", e.target.value)}
                       maxLength={5}
                       required
+                      className="w-full"
                     />
                   </div>
 
@@ -315,6 +322,7 @@ export default function AddClientPanel({ isOpen, onClose, onClientAdded }: AddCl
                       onChange={(e) => handleInputChange("cardCvv", e.target.value)}
                       maxLength={4}
                       required
+                      className="w-full"
                     />
                   </div>
                 </div>

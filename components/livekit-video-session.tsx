@@ -387,14 +387,16 @@ function RoomContent({
           }
         }
         
+        // Determine role based on sessionOwnerId if available
+        const isCoach = sessionOwnerId && identity === sessionOwnerId
         return {
           identity: identity,
           info: {
             firstName: '',
             lastName: '',
             fullName: identity,
-            label: 'Participant',
-            role: 'unknown',
+            label: isCoach ? 'Coach' : 'Participant',
+            role: isCoach ? 'coach' : 'unknown',
           },
         }
       }
@@ -402,15 +404,31 @@ function RoomContent({
       const infoPromises = allParticipants
         .filter(p => p.identity && p.identity.trim() !== '')
         .map(async (p) => {
-          if (participantInfo[p.identity] && participantInfo[p.identity].fullName && participantInfo[p.identity].fullName !== 'Loading...') {
-        return null
+          // Skip if we already have valid info
+          if (participantInfo[p.identity] && participantInfo[p.identity].fullName && participantInfo[p.identity].fullName !== 'Loading...' && participantInfo[p.identity].fullName !== p.identity) {
+            return null
           }
           
+          // Skip if we're already fetching this participant
           if (fetchedParticipantsRef.current.has(p.identity)) {
             const existingInfo = participantInfo[p.identity]
-            if (existingInfo && existingInfo.fullName && existingInfo.fullName !== 'Loading...') {
+            if (existingInfo && existingInfo.fullName && existingInfo.fullName !== 'Loading...' && existingInfo.fullName !== p.identity) {
               return null
             }
+          }
+          
+          // Set initial loading state
+          if (!participantInfo[p.identity]) {
+            setParticipantInfo(prev => ({
+              ...prev,
+              [p.identity]: {
+                firstName: '',
+                lastName: '',
+                fullName: 'Loading...',
+                label: sessionOwnerId && p.identity === sessionOwnerId ? 'Coach' : 'Participant',
+                role: sessionOwnerId && p.identity === sessionOwnerId ? 'coach' : 'unknown',
+              }
+            }))
           }
           
           fetchedParticipantsRef.current.add(p.identity)
@@ -702,6 +720,9 @@ function RoomContent({
 
   // Helper to format participant name with role
   const formatParticipantName = (info: typeof participantInfo[string] | undefined, participant: typeof participants[0]) => {
+    // Check if this participant is the coach based on sessionOwnerId
+    const isCoach = sessionOwnerId && participant.identity === sessionOwnerId
+    
     // If we have info from the API, use it
     if (info) {
       // Build name from firstName and lastName (from jak-users f_name/l_name or jak-subjects f_name/l_name)
@@ -726,15 +747,19 @@ function RoomContent({
 
       // Return formatted name if we have any name data
       if (fullName && fullName.trim()) {
-        // Determine role label
-        const role = info.role === 'coach' ? 'Coach' : 'Participant'
+        // Determine role label - prefer API role, but fallback to sessionOwnerId check
+        const role = info.role === 'coach' || isCoach ? 'Coach' : 'Participant'
         return `${fullName} (${role})`
       }
     }
 
-    // Fallback: show participant identity instead of "Loading..." forever
-    // This ensures we always show something useful
-    return participant.identity || 'Participant'
+    // Fallback: if we know it's a coach but don't have name yet, show "Coach" label
+    if (isCoach) {
+      return `${participant.identity} (Coach)`
+    }
+
+    // Fallback: show participant identity with Participant label
+    return `${participant.identity || 'Unknown'} (Participant)`
   }
 
   // Helper to render a participant video tile
@@ -1084,7 +1109,7 @@ function RoomContent({
   }
 
   return (
-    <>
+    <div className="relative w-full h-full flex overflow-hidden">
       <div
         className={`relative h-full flex flex-col transition-all duration-300 ease-in-out ${
           isPanelOpen ? "md:w-[60%] w-full" : "w-full"
@@ -1213,7 +1238,7 @@ function RoomContent({
       </Button>
 
       <div
-        className={`hidden md:flex h-full border-l bg-background flex-col transition-all duration-300 ease-in-out overflow-hidden ${
+        className={`hidden md:flex h-full border-l bg-background flex-col transition-all duration-300 ease-in-out overflow-hidden flex-shrink-0 ${
           isPanelOpen ? "w-[40%] min-w-[500px] max-w-[700px]" : "w-0 min-w-0 border-0"
         }`}
       >
@@ -1324,7 +1349,7 @@ function RoomContent({
 
           <TabsContent
             value="ai-insights"
-            className="flex-1 overflow-y-auto scrollbar-hide mt-0 h-[calc(100vh-120px)]"
+            className="flex-1 overflow-hidden mt-0 p-0 h-full"
           >
             <AIInsightsPanel
               participants={participants.map(p => ({
@@ -1338,7 +1363,7 @@ function RoomContent({
           </TabsContent>
         </Tabs>
       </div>
-    </>
+    </div>
   )
 }
 
