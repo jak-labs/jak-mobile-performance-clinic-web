@@ -12,6 +12,7 @@ export default function SessionPage() {
   const [sessionTitle, setSessionTitle] = useState<string>("")
   const [sessionOwnerId, setSessionOwnerId] = useState<string | null>(null)
   const [sessionType, setSessionType] = useState<string | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -31,9 +32,17 @@ export default function SessionPage() {
           throw new Error("Session not found")
         }
 
+        // Check if session is ended (status is "completed")
+        if (session.status === "completed") {
+          setError("This session has ended and is no longer available to join.")
+          setIsLoading(false)
+          return
+        }
+
         setSessionTitle(session.title || "Session")
         setSessionOwnerId(session.user_id || null)
         setSessionType(session.session_type || null) // "single" or "group"
+        setSessionStatus(session.status || null)
         
         // Use livekit_room_name if available, otherwise generate from session_id
         const room = session.livekit_room_name || `session-${sessionId}`
@@ -68,7 +77,7 @@ export default function SessionPage() {
         <div className="text-center">
           <p className="text-destructive mb-4">{error || "Session not found"}</p>
           <a href="/" className="text-primary hover:underline">
-            Return to calendar
+            Return to schedule
           </a>
         </div>
       </div>

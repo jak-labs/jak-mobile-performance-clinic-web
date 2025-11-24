@@ -1247,14 +1247,14 @@ function RoomContent({
           <div className="border-b">
             <TabsList className="w-full rounded-none border-0">
               {v2Enabled && (
-                <TabsTrigger value="metrics" className="flex-1">
+                <TabsTrigger value="metrics" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
                   Live Metrics
                 </TabsTrigger>
               )}
-              <TabsTrigger value="session" className="flex-1">
+              <TabsTrigger value="session" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
                 Session
               </TabsTrigger>
-              <TabsTrigger value="ai-insights" className="flex-1">
+              <TabsTrigger value="ai-insights" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
                 AI Insights
               </TabsTrigger>
             </TabsList>
@@ -1332,9 +1332,12 @@ function RoomContent({
                                 Connected
                               </span>
                             ) : (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-600 dark:text-gray-400">
-                                Not Joined
-                              </span>
+                              // Only show "Not Joined" for remote sessions (single/group), not for mocap
+                              sessionType !== "mocap" && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-600 dark:text-gray-400">
+                                  Not Joined
+                                </span>
+                              )
                             )}
                     </div>
                         </div>
@@ -1363,22 +1366,46 @@ function RoomContent({
 
                     setIsEndingSession(true)
                     try {
-                      const response = await fetch(`/api/sessions/${sessionId}/end`, {
+                      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/end`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                       })
 
                       if (response.ok) {
-                        alert('Session ended successfully. The session is now closed.')
-                        // Optionally redirect or refresh
-                        window.location.reload()
+                        const contentType = response.headers.get('content-type')
+                        if (contentType && contentType.includes('application/json')) {
+                          const data = await response.json()
+                          alert(data.message || 'Session ended successfully. The session is now closed.')
+                        } else {
+                          alert('Session ended successfully. The session is now closed.')
+                        }
+                        // Redirect to schedule page
+                        window.location.href = '/'
                       } else {
-                        const errorData = await response.json()
-                        alert(errorData.error || 'Failed to end session')
+                        // Check if response is JSON before parsing
+                        const contentType = response.headers.get('content-type')
+                        let errorMessage = 'Failed to end session'
+                        
+                        if (contentType && contentType.includes('application/json')) {
+                          try {
+                            const errorData = await response.json()
+                            errorMessage = errorData.error || errorMessage
+                          } catch (parseError) {
+                            console.error('Error parsing error response:', parseError)
+                            errorMessage = `Failed to end session (${response.status} ${response.statusText})`
+                          }
+                        } else {
+                          // Response is HTML (error page)
+                          const text = await response.text()
+                          console.error('Non-JSON error response:', text.substring(0, 200))
+                          errorMessage = `Failed to end session (${response.status} ${response.statusText})`
+                        }
+                        
+                        alert(errorMessage)
                       }
                     } catch (error: any) {
                       console.error('Error ending session:', error)
-                      alert(error.message || 'Failed to end session')
+                      alert(error.message || 'Failed to end session. Please try again.')
                     } finally {
                       setIsEndingSession(false)
                     }

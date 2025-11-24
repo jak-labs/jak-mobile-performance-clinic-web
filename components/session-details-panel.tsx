@@ -43,8 +43,14 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
     })
   }
 
-  // Check if session is expired (date is before today)
+  // Check if session is expired (date is before today) or ended (status is completed)
   const isExpired = () => {
+    // Check if session status is "completed" (ended)
+    if (session.status === "completed") {
+      return true
+    }
+    
+    // Check if date is before today
     const today = new Date()
     today.setHours(0, 0, 0, 0) // Reset time to start of day
     

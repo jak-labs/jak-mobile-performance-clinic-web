@@ -5,7 +5,7 @@ import { getSessionById, updateSessionStatusById } from '@/lib/dynamodb-schedule
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -17,7 +17,7 @@ export async function POST(
       );
     }
 
-    const { sessionId } = params;
+    const { id: sessionId } = await params;
 
     if (!sessionId) {
       return NextResponse.json(
