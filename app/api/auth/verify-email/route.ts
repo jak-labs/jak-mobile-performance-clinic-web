@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
           console.log('User groups after verification:', groups.map(g => g.GroupName));
           console.log('isCoach:', isCoach, 'isMember:', isMember);
 
-          // Get user attributes including sub and name
+          // Get user attributes including sub
           const userResponse = await cognitoClient.send(
             new AdminGetUserCommand({
               UserPoolId: userPoolId,
@@ -116,11 +116,6 @@ export async function POST(req: NextRequest) {
           // Get sub from user attributes
           const subAttribute = userResponse.UserAttributes?.find((attr) => attr.Name === 'sub');
           const userId = subAttribute?.Value || email;
-          
-          // Get name from Cognito attributes if fullName not provided in request
-          const nameAttribute = userResponse.UserAttributes?.find((attr) => attr.Name === 'name');
-          const cognitoName = nameAttribute?.Value;
-          const finalFullName = fullName || cognitoName || undefined;
 
           // Save to appropriate DynamoDB table based on group
           if (isMember) {
@@ -141,7 +136,7 @@ export async function POST(req: NextRequest) {
             }
             
             // Parse fullName into f_name and l_name if provided
-            const nameParts = finalFullName ? finalFullName.split(' ') : [];
+            const nameParts = fullName ? fullName.split(' ') : [];
             const f_name = nameParts[0] || '';
             const l_name = nameParts.slice(1).join(' ') || '';
 
@@ -244,4 +239,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
