@@ -441,7 +441,7 @@ export default function ScheduleContent() {
             {/* Desktop: Calendar Grid */}
             <div className="hidden md:flex flex-col flex-1 min-h-0 overflow-hidden">
               {/* Legend */}
-              <div className="flex gap-4 mb-2">
+              <div className="flex gap-4 mb-0.5">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-blue-500" />
                   <span className="text-xs text-muted-foreground">Virtual 1:1 Session</span>
@@ -470,7 +470,8 @@ export default function ScheduleContent() {
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                     <div
                       key={day}
-                      className="text-center font-semibold text-xs text-muted-foreground py-0.5 bg-muted/50 flex items-center justify-center"
+                      className="text-center font-semibold text-[10px] text-muted-foreground bg-muted/50 flex items-center justify-center"
+                      style={{ padding: '1px 0', minHeight: 'auto', lineHeight: '1.2' }}
                     >
                       {day}
                     </div>
@@ -497,34 +498,38 @@ export default function ScheduleContent() {
                     return (
                       <div
                         key={day}
-                        className={`p-1.5 flex flex-col overflow-hidden ${isToday ? "bg-primary/5" : "bg-background"}`}
+                        className={`p-1.5 flex flex-col ${isToday ? "bg-primary/5" : "bg-background"}`}
                       >
-                        <div className={`text-xs font-semibold mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                        <div className={`text-xs font-semibold mb-1 flex-shrink-0 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
                           {day}
                         </div>
-                        <div className="space-y-0.5 overflow-hidden flex-1">
-                          {visibleSessions.map((session) => (
-                            <button
-                              key={session.id}
-                              onClick={() => handleSelectSession(session)}
-                              className="w-full text-left px-1.5 py-0.5 rounded text-[11px] transition-colors hover:opacity-80 flex items-center gap-1.5 group"
-                            >
-                              <div
-                                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                  session.type === "1:1" ? "bg-blue-500" : session.type === "mocap" ? "bg-orange-500" : "bg-purple-500"
-                                }`}
-                              />
-                              <span className="text-muted-foreground flex-shrink-0">{session.time}</span>
-                              <span className="truncate font-medium text-foreground">{session.title}</span>
-                            </button>
-                          ))}
+                        <div className="flex-1 min-h-0 flex flex-col">
+                          {/* Sessions list - scrollable if needed */}
+                          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide space-y-0.5">
+                            {visibleSessions.map((session) => (
+                              <button
+                                key={session.id}
+                                onClick={() => handleSelectSession(session)}
+                                className="w-full text-left px-1.5 py-0.5 rounded text-[11px] transition-colors hover:opacity-80 flex items-center gap-1.5 group"
+                              >
+                                <div
+                                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                    session.type === "1:1" ? "bg-blue-500" : session.type === "mocap" ? "bg-orange-500" : "bg-purple-500"
+                                  }`}
+                                />
+                                <span className="text-muted-foreground flex-shrink-0">{session.time}</span>
+                                <span className="truncate font-medium text-foreground">{session.title}</span>
+                              </button>
+                            ))}
+                          </div>
+                          {/* "+ More" button - always visible, never cut off */}
                           {hasMoreSessions && (
                             <button
                               onClick={() => setSelectedDaySessions({ date, sessions: daySessions })}
-                              className="w-full text-left px-1.5 py-0.5 rounded text-[11px] transition-colors hover:opacity-80 flex items-center gap-1.5 group text-muted-foreground hover:text-foreground"
+                              className="w-full text-left px-1.5 py-0.5 rounded text-[10px] transition-colors hover:opacity-80 flex items-center gap-1.5 group text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5"
                             >
-                              <Plus className="w-3 h-3 flex-shrink-0" />
-                              <span className="text-[10px]">{daySessions.length - 2} more</span>
+                              <Plus className="w-2.5 h-2.5 flex-shrink-0" />
+                              <span className="text-[9px] whitespace-nowrap">{daySessions.length - 2} more</span>
                             </button>
                           )}
                         </div>
