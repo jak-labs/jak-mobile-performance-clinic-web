@@ -178,33 +178,13 @@ function RoomContent({
 }) {
   const router = useRouter()
   // Layout state management
-  // Initialize layout based on session type:
-  // - 1:1 sessions start with 'one-on-one' (athlete big, coach small)
-  // - Group sessions start with 'grid' (all participants in grid)
-  // - Otherwise default (coach-focused)
-  const getInitialLayout = (): LayoutMode => {
-    if (sessionType === 'single') return 'one-on-one'
-    if (sessionType === 'group') return 'grid'
-    return 'grid'
-  }
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
-    if (sessionType === 'single') return 'one-on-one'
-    if (sessionType === 'group') return 'grid'
-    return 'grid'
-  })
+  // Initialize layout to 'spotlight' (FocusLayout) by default for all session types
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('spotlight')
   const [spotlightParticipantId, setSpotlightParticipantId] = useState<string | null>(null)
   const { data: session } = useSession()
   
-  // Update layout when session type changes
-  useEffect(() => {
-    if (sessionType === 'single') {
-      setLayoutMode('one-on-one')
-    } else if (sessionType === 'group') {
-      setLayoutMode('grid')
-    } else {
-      setLayoutMode('grid')
-    }
-  }, [sessionType])
+  // Keep spotlight as default - no need to change based on session type
+  // Users can manually switch to grid if they prefer
   const [isCoach, setIsCoach] = useState<boolean | null>(null)
   const [participantInfo, setParticipantInfo] = useState<Record<string, { firstName: string; lastName: string; fullName: string; label: string; role: string }>>({})
   const fetchedParticipantsRef = useRef<Set<string>>(new Set())
@@ -1165,6 +1145,22 @@ function RoomContent({
                   title="Grid Layout"
                 >
                   <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    setLayoutMode('spotlight')
+                    if (!spotlightParticipantId && otherParticipants.length > 0) {
+                      setSpotlightParticipantId(otherParticipants[0].identity)
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    layoutMode === 'spotlight' 
+                      ? 'bg-white text-black' 
+                      : 'bg-transparent text-white hover:bg-white/20'
+                  }`}
+                  title="Spotlight Layout"
+                >
+                  <User className="h-4 w-4" />
                 </button>
               </>
             )}

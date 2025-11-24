@@ -7,6 +7,7 @@ import { Lightbulb, Download, Loader2 } from "lucide-react"
 import { useRoomContext, useTracks } from "@livekit/components-react"
 import { DataPacket_Kind, Track, ConnectionState } from "livekit-client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 
 interface AIInsight {
   participantId: string
@@ -712,14 +713,21 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }, [room]) // Only depend on room - use refs for other values
 
-  // Group insights by participant
+  // Group insights by participant, excluding coach
   const insightsByParticipant = insights.reduce((acc, insight) => {
+    // Filter out coach (sessionOwnerId)
+    if (sessionOwnerId && insight.participantId === sessionOwnerId) {
+      return acc
+    }
     if (!acc[insight.participantId]) {
       acc[insight.participantId] = []
     }
     acc[insight.participantId].push(insight)
     return acc
   }, {} as Record<string, AIInsight[]>)
+
+  // Get non-coach participant count
+  const nonCoachParticipantCount = Object.keys(insightsByParticipant).length
 
   const handleExportSummary = async () => {
     if (!sessionId) {
@@ -824,207 +832,245 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50 animate-pulse" />
           <p>Loading AI insights...</p>
         </div>
-      ) : Object.keys(insightsByParticipant).length === 0 ? (
+      ) : nonCoachParticipantCount === 0 ? (
         <div className="text-sm text-muted-foreground text-center py-8">
           <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p>AI insights will appear here as participants move</p>
           <p className="text-xs mt-2">Movement analysis runs every 30 seconds (10 frames over 30s)</p>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {Object.entries(insightsByParticipant).map(([participantId, participantInsights]) => {
-            const latestInsight = participantInsights[participantInsights.length - 1]
-            const participantName = latestInsight.participantName
+      ) : (() => {
+        // Helper functions
+        const getRiskColor = (riskLevel?: string) => {
+          if (!riskLevel) return 'bg-gray-500'
+          const level = riskLevel.toLowerCase()
+          if (level === 'high') return 'bg-red-500'
+          if (level === 'moderate') return 'bg-yellow-500'
+          return 'bg-green-500'
+        }
 
-            // Get risk level color
-            const getRiskColor = (riskLevel?: string) => {
-              if (!riskLevel) return 'bg-gray-500'
-              const level = riskLevel.toLowerCase()
-              if (level === 'high') return 'bg-red-500'
-              if (level === 'moderate') return 'bg-yellow-500'
-              return 'bg-green-500'
-            }
+        const getRiskEmoji = (riskLevel?: string) => {
+          if (!riskLevel) return '⚪'
+          const level = riskLevel.toLowerCase()
+          if (level === 'high') return '🔴'
+          if (level === 'moderate') return '🟡'
+          return '🟢'
+        }
 
-            const getRiskEmoji = (riskLevel?: string) => {
-              if (!riskLevel) return '⚪'
-              const level = riskLevel.toLowerCase()
-              if (level === 'high') return '🔴'
-              if (level === 'moderate') return '🟡'
-              return '🟢'
-            }
+        // Function to render a single insight card
+        const renderInsightCard = (participantId: string, participantInsights: AIInsight[]) => {
+          const latestInsight = participantInsights[participantInsights.length - 1]
+          const participantName = latestInsight.participantName
 
-            return (
-              <Card key={participantId} className="p-4 min-w-0">
-                <div className="space-y-4 min-w-0">
-                  {/* Header */}
-                  <div className="flex items-center gap-2 mb-2 min-w-0">
-                    <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
-                    <h4 className="font-semibold text-base truncate min-w-0">🔥 AI Movement Summary – {participantName}</h4>
-                  </div>
+          return (
+            <div className="space-y-4 min-w-0">
+              {latestInsight.exerciseName && (
+                <h5 className="font-medium text-sm text-muted-foreground">
+                  {latestInsight.exerciseName}
+                </h5>
+              )}
 
-                  {latestInsight.exerciseName && (
-                    <h5 className="font-medium text-sm text-muted-foreground">
-                      {latestInsight.exerciseName}
-                    </h5>
+              {/* Movement Quality & Patterns */}
+              {(latestInsight.movementQuality || (latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0)) && (
+                <div className="space-y-2">
+                  <h5 className="font-semibold text-sm">Movement Analysis</h5>
+                  {latestInsight.movementQuality && (
+                    <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
+                      <span className="font-medium">Movement Quality:</span> {latestInsight.movementQuality}
+                    </p>
                   )}
-
-                  {/* Movement Quality & Patterns (for multi-frame analysis) */}
-                  {(latestInsight.movementQuality || (latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0)) && (
-                    <div className="space-y-2">
-                      <h5 className="font-semibold text-sm">Movement Analysis</h5>
-                      {latestInsight.movementQuality && (
-                        <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
-                          <span className="font-medium">Movement Quality:</span> {latestInsight.movementQuality}
-                        </p>
-                      )}
-                      {latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0 && (
-                        <div className="space-y-1 min-w-0">
-                          <p className="text-sm font-medium text-muted-foreground">Movement Patterns:</p>
-                          <ul className="space-y-1 text-sm text-muted-foreground">
-                            {latestInsight.movementPatterns.map((pattern, idx) => (
-                              <li key={idx} className="flex items-start gap-2 min-w-0">
-                                <span className="text-primary mt-0.5 shrink-0">•</span>
-                                <span className="break-words overflow-wrap-anywhere">{pattern}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Posture Metrics */}
-                  {latestInsight.postureMetrics && Object.keys(latestInsight.postureMetrics).length > 0 && (
-                    <div className="space-y-2">
-                      <h5 className="font-semibold text-sm">Posture Metrics</h5>
-                      <div className="space-y-1 text-sm min-w-0">
-                        {latestInsight.postureMetrics.spineLean && (
-                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                            <span className="font-medium">Spine Lean:</span> {latestInsight.postureMetrics.spineLean}
-                          </p>
-                        )}
-                        {latestInsight.postureMetrics.neckFlexion && (
-                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                            <span className="font-medium">Neck Flexion:</span> {latestInsight.postureMetrics.neckFlexion}
-                          </p>
-                        )}
-                        {latestInsight.postureMetrics.shoulderAlignment && (
-                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                            <span className="font-medium">Shoulder Alignment:</span> {latestInsight.postureMetrics.shoulderAlignment}
-                          </p>
-                        )}
-                        {latestInsight.postureMetrics.pelvicSway && (
-                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                            <span className="font-medium">Pelvic Sway:</span> {latestInsight.postureMetrics.pelvicSway}
-                          </p>
-                        )}
-                        {latestInsight.postureMetrics.additionalMetrics?.map((metric, idx) => (
-                          <p key={idx} className="text-muted-foreground break-words overflow-wrap-anywhere">{metric}</p>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Performance Interpretation */}
-                  {latestInsight.performanceInterpretation && (
-                    <div className="space-y-2 min-w-0">
-                      <h5 className="font-semibold text-sm">Performance Interpretation</h5>
-                      <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
-                        {latestInsight.performanceInterpretation}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Performance Impact */}
-                  {latestInsight.performanceImpact && latestInsight.performanceImpact.length > 0 && (
-                    <div className="space-y-2 min-w-0">
-                      <h5 className="font-semibold text-sm">Performance Impact</h5>
+                  {latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0 && (
+                    <div className="space-y-1 min-w-0">
+                      <p className="text-sm font-medium text-muted-foreground">Movement Patterns:</p>
                       <ul className="space-y-1 text-sm text-muted-foreground">
-                        {latestInsight.performanceImpact.map((impact, idx) => (
-                          <li key={idx} className="flex items-start gap-2 min-w-0">
-                            <span className="text-destructive mt-0.5 shrink-0">•</span>
-                            <span className="break-words overflow-wrap-anywhere">{impact}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Scores */}
-                  {(latestInsight.balanceScore > 0 || latestInsight.symmetryScore > 0 || latestInsight.posturalEfficiency || latestInsight.movementConsistency || latestInsight.dynamicStability) && (
-                    <div className="space-y-2">
-                      <h5 className="font-semibold text-sm">Scores</h5>
-                      <div className="flex flex-wrap gap-4 text-sm">
-                        {latestInsight.balanceScore > 0 && (
-                          <div>
-                            <span className="text-muted-foreground">Balance Score: </span>
-                            <span className="font-semibold">{latestInsight.balanceScore}</span>
-                          </div>
-                        )}
-                        {latestInsight.symmetryScore > 0 && (
-                          <div>
-                            <span className="text-muted-foreground">Symmetry: </span>
-                            <span className="font-semibold">{latestInsight.symmetryScore}</span>
-                          </div>
-                        )}
-                        {latestInsight.posturalEfficiency && (
-                          <div>
-                            <span className="text-muted-foreground">Postural Efficiency: </span>
-                            <span className="font-semibold">{latestInsight.posturalEfficiency}</span>
-                          </div>
-                        )}
-                        {latestInsight.movementConsistency !== undefined && (
-                          <div>
-                            <span className="text-muted-foreground">Movement Consistency: </span>
-                            <span className="font-semibold">{latestInsight.movementConsistency}</span>
-                          </div>
-                        )}
-                        {latestInsight.dynamicStability !== undefined && (
-                          <div>
-                            <span className="text-muted-foreground">Dynamic Stability: </span>
-                            <span className="font-semibold">{latestInsight.dynamicStability}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Risk Level */}
-                  {latestInsight.riskLevel && (
-                    <div className="space-y-2 min-w-0">
-                      <h5 className="font-semibold text-sm">Risk Level</h5>
-                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                        <span className="text-lg shrink-0">{getRiskEmoji(latestInsight.riskLevel)}</span>
-                        <span className={`px-2 py-1 rounded text-xs font-semibold text-white shrink-0 ${getRiskColor(latestInsight.riskLevel)}`}>
-                          {latestInsight.riskLevel}
-                        </span>
-                        {latestInsight.riskDescription && (
-                          <span className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">{latestInsight.riskDescription}</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Targeted Recommendations */}
-                  {latestInsight.targetedRecommendations && latestInsight.targetedRecommendations.length > 0 && (
-                    <div className="space-y-2 pt-2 border-t border-border min-w-0">
-                      <h5 className="font-semibold text-sm">Targeted Recommendations</h5>
-                      <ul className="space-y-1 text-sm text-muted-foreground">
-                        {latestInsight.targetedRecommendations.map((rec, idx) => (
+                        {latestInsight.movementPatterns.map((pattern, idx) => (
                           <li key={idx} className="flex items-start gap-2 min-w-0">
                             <span className="text-primary mt-0.5 shrink-0">•</span>
-                            <span className="break-words overflow-wrap-anywhere">{rec}</span>
+                            <span className="break-words overflow-wrap-anywhere">{pattern}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Posture Metrics */}
+              {latestInsight.postureMetrics && Object.keys(latestInsight.postureMetrics).length > 0 && (
+                <div className="space-y-2">
+                  <h5 className="font-semibold text-sm">Posture Metrics</h5>
+                  <div className="space-y-1 text-sm min-w-0">
+                    {latestInsight.postureMetrics.spineLean && (
+                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
+                        <span className="font-medium">Spine Lean:</span> {latestInsight.postureMetrics.spineLean}
+                      </p>
+                    )}
+                    {latestInsight.postureMetrics.neckFlexion && (
+                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
+                        <span className="font-medium">Neck Flexion:</span> {latestInsight.postureMetrics.neckFlexion}
+                      </p>
+                    )}
+                    {latestInsight.postureMetrics.shoulderAlignment && (
+                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
+                        <span className="font-medium">Shoulder Alignment:</span> {latestInsight.postureMetrics.shoulderAlignment}
+                      </p>
+                    )}
+                    {latestInsight.postureMetrics.pelvicSway && (
+                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
+                        <span className="font-medium">Pelvic Sway:</span> {latestInsight.postureMetrics.pelvicSway}
+                      </p>
+                    )}
+                    {latestInsight.postureMetrics.additionalMetrics?.map((metric, idx) => (
+                      <p key={idx} className="text-muted-foreground break-words overflow-wrap-anywhere">{metric}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Performance Interpretation */}
+              {latestInsight.performanceInterpretation && (
+                <div className="space-y-2 min-w-0">
+                  <h5 className="font-semibold text-sm">Performance Interpretation</h5>
+                  <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
+                    {latestInsight.performanceInterpretation}
+                  </p>
+                </div>
+              )}
+
+              {/* Performance Impact */}
+              {latestInsight.performanceImpact && latestInsight.performanceImpact.length > 0 && (
+                <div className="space-y-2 min-w-0">
+                  <h5 className="font-semibold text-sm">Performance Impact</h5>
+                  <ul className="space-y-1 text-sm text-muted-foreground">
+                    {latestInsight.performanceImpact.map((impact, idx) => (
+                      <li key={idx} className="flex items-start gap-2 min-w-0">
+                        <span className="text-destructive mt-0.5 shrink-0">•</span>
+                        <span className="break-words overflow-wrap-anywhere">{impact}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Scores */}
+              {(latestInsight.balanceScore > 0 || latestInsight.symmetryScore > 0 || latestInsight.posturalEfficiency || latestInsight.movementConsistency || latestInsight.dynamicStability) && (
+                <div className="space-y-2">
+                  <h5 className="font-semibold text-sm">Scores</h5>
+                  <div className="flex flex-wrap gap-4 text-sm">
+                    {latestInsight.balanceScore > 0 && (
+                      <div>
+                        <span className="text-muted-foreground">Balance Score: </span>
+                        <span className="font-semibold">{latestInsight.balanceScore}</span>
+                      </div>
+                    )}
+                    {latestInsight.symmetryScore > 0 && (
+                      <div>
+                        <span className="text-muted-foreground">Symmetry: </span>
+                        <span className="font-semibold">{latestInsight.symmetryScore}</span>
+                      </div>
+                    )}
+                    {latestInsight.posturalEfficiency && (
+                      <div>
+                        <span className="text-muted-foreground">Postural Efficiency: </span>
+                        <span className="font-semibold">{latestInsight.posturalEfficiency}</span>
+                      </div>
+                    )}
+                    {latestInsight.movementConsistency !== undefined && (
+                      <div>
+                        <span className="text-muted-foreground">Movement Consistency: </span>
+                        <span className="font-semibold">{latestInsight.movementConsistency}</span>
+                      </div>
+                    )}
+                    {latestInsight.dynamicStability !== undefined && (
+                      <div>
+                        <span className="text-muted-foreground">Dynamic Stability: </span>
+                        <span className="font-semibold">{latestInsight.dynamicStability}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Risk Level */}
+              {latestInsight.riskLevel && (
+                <div className="space-y-2 min-w-0">
+                  <h5 className="font-semibold text-sm">Risk Level</h5>
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <span className="text-lg shrink-0">{getRiskEmoji(latestInsight.riskLevel)}</span>
+                    <span className={`px-2 py-1 rounded text-xs font-semibold text-white shrink-0 ${getRiskColor(latestInsight.riskLevel)}`}>
+                      {latestInsight.riskLevel}
+                    </span>
+                    {latestInsight.riskDescription && (
+                      <span className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">{latestInsight.riskDescription}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Targeted Recommendations */}
+              {latestInsight.targetedRecommendations && latestInsight.targetedRecommendations.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-border min-w-0">
+                  <h5 className="font-semibold text-sm">Targeted Recommendations</h5>
+                  <ul className="space-y-1 text-sm text-muted-foreground">
+                    {latestInsight.targetedRecommendations.map((rec, idx) => (
+                      <li key={idx} className="flex items-start gap-2 min-w-0">
+                        <span className="text-primary mt-0.5 shrink-0">•</span>
+                        <span className="break-words overflow-wrap-anywhere">{rec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )
+        }
+
+        // If only 1 participant (not counting coach), show single card
+        if (nonCoachParticipantCount === 1) {
+          const [participantId, participantInsights] = Object.entries(insightsByParticipant)[0]
+          const latestInsight = participantInsights[participantInsights.length - 1]
+          const participantName = latestInsight.participantName
+
+          return (
+            <div className="space-y-4">
+              <Card className="p-4 min-w-0">
+                <div className="space-y-4 min-w-0">
+                  <div className="flex items-center gap-2 mb-2 min-w-0">
+                    <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
+                    <h4 className="font-semibold text-base truncate min-w-0">🔥 AI Movement Summary – {participantName}</h4>
+                  </div>
+                  {renderInsightCard(participantId, participantInsights)}
+                </div>
               </Card>
-            )
-          })}
-        </div>
-      )}
+            </div>
+          )
+        }
+
+        // If more than 1 participant, use accordion
+        return (
+          <Accordion type="single" collapsible className="w-full">
+            {Object.entries(insightsByParticipant).map(([participantId, participantInsights]) => {
+              const latestInsight = participantInsights[participantInsights.length - 1]
+              const participantName = latestInsight.participantName
+              
+              return (
+                <AccordionItem key={participantId} value={participantId} className="border-border">
+                  <AccordionTrigger className="hover:no-underline">
+                    <div className="flex items-center gap-2">
+                      <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
+                      <span className="font-semibold">🔥 AI Movement Summary – {participantName}</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <Card className="p-4 min-w-0">
+                      {renderInsightCard(participantId, participantInsights)}
+                    </Card>
+                  </AccordionContent>
+                </AccordionItem>
+              )
+            })}
+          </Accordion>
+        )
+      })()}
       </div>
     </div>
   )

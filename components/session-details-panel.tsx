@@ -1,9 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { Calendar, Clock, Users, LinkIcon, Video, ChevronRight, User, Download, Loader2 } from "lucide-react"
+import { Calendar, Clock, Users, LinkIcon, Video, ChevronRight, User, Download, Loader2, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { useState, useEffect } from "react"
 
 interface Session {
@@ -33,6 +36,11 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
   const [coachName, setCoachName] = useState<string | null>(null)
   const [isLoadingParticipants, setIsLoadingParticipants] = useState(true)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false)
+  const [availableClients, setAvailableClients] = useState<Array<{ subject_id: string; name: string; sport?: string }>>([])
+  const [selectedClientsToInvite, setSelectedClientsToInvite] = useState<string[]>([])
+  const [isLoadingClients, setIsLoadingClients] = useState(false)
+  const [isInviting, setIsInviting] = useState(false)
   
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
@@ -170,6 +178,105 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
     alert("Session link copied to clipboard!")
   }
 
+  const fetchAvailableClients = async () => {
+    setIsLoadingClients(true)
+    try {
+      const response = await fetch("/api/subjects")
+      if (!response.ok) {
+        throw new Error("Failed to fetch clients")
+      }
+      const data = await response.json()
+      
+      // Map subjects to clients format
+      const mappedClients = data.subjects.map((subject: any) => {
+        let name = subject.name || 
+                   subject.full_name || 
+                   (subject.f_name && subject.l_name ? `${subject.f_name} ${subject.l_name}`.trim() : null) ||
+                   (subject.first_name && subject.last_name ? `${subject.first_name} ${subject.last_name}`.trim() : null) ||
+                   subject.f_name || 
+                   subject.first_name ||
+                   "Unknown"
+        
+        let sport = subject.sport || subject.sport_type || ""
+        
+        return {
+          subject_id: subject.subject_id || subject.id,
+          name: name,
+          sport: sport,
+        }
+      })
+
+      // Filter out clients that are already participants
+      // Normalize IDs to strings for comparison
+      const existingClientIds = new Set(session.clients.map((id: string) => String(id).trim()))
+      const available = mappedClients.filter((client: any) => {
+        const clientId = String(client.subject_id || client.id || '').trim()
+        return clientId && !existingClientIds.has(clientId)
+      })
+      
+      console.log('[Invite] Existing participants:', Array.from(existingClientIds))
+      console.log('[Invite] Available clients after filtering:', available.length)
+      
+      setAvailableClients(available)
+      setSelectedClientsToInvite([])
+    } catch (err: any) {
+      console.error("Error fetching clients:", err)
+      alert(err.message || "Failed to load clients")
+    } finally {
+      setIsLoadingClients(false)
+    }
+  }
+
+  const toggleClientSelection = (clientId: string) => {
+    setSelectedClientsToInvite((prev) =>
+      prev.includes(clientId)
+        ? prev.filter((id) => id !== clientId)
+        : [...prev, clientId]
+    )
+  }
+
+  const handleInviteParticipants = async () => {
+    if (selectedClientsToInvite.length === 0) {
+      alert("Please select at least one client to invite")
+      return
+    }
+
+    setIsInviting(true)
+    try {
+      const response = await fetch(`/api/sessions/${session.id}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subjectIds: selectedClientsToInvite }),
+      })
+
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        console.error('Non-JSON response:', text.substring(0, 200))
+        alert(`Server error: Received ${response.status} ${response.statusText}. Please check the console for details.`)
+        return
+      }
+
+      const data = await response.json()
+
+      if (response.ok) {
+        alert(`Successfully invited ${data.invited} participant(s)${data.failed > 0 ? `. ${data.failed} invitation(s) failed.` : ''}`)
+        setIsInviteDialogOpen(false)
+        setSelectedClientsToInvite([])
+        // Refresh the page or update session data to show new participants
+        window.location.reload()
+      } else {
+        alert(data.error || 'Failed to invite participants')
+      }
+    } catch (error: any) {
+      console.error('Error inviting participants:', error)
+      alert(error.message || 'Failed to invite participants')
+    } finally {
+      setIsInviting(false)
+    }
+  }
+
   return (
     <div className="relative transition-all duration-300 ease-in-out w-full md:w-[40%] border-l border-border bg-muted">
       <Button
@@ -222,9 +329,25 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
 
           {/* Participants */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2 font-semibold text-foreground">
-              <Users className="size-5" />
-              <span>Participants ({session.clients.length})</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-semibold text-foreground">
+                <Users className="size-5" />
+                <span>Participants ({session.clients.length})</span>
+              </div>
+              {!isExpired() && session.type === "group" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsInviteDialogOpen(true)
+                    fetchAvailableClients()
+                  }}
+                  className="gap-2"
+                >
+                  <UserPlus className="size-4" />
+                  Invite More
+                </Button>
+              )}
             </div>
             {isLoadingParticipants ? (
               <div className="text-sm text-muted-foreground">Loading participants...</div>
@@ -295,6 +418,84 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
           </div>
         </div>
       </div>
+
+      {/* Invite Participants Dialog */}
+      <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Invite Additional Participants</DialogTitle>
+            <DialogDescription>
+              Select clients to invite to this session. They will receive an email invitation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            {isLoadingClients ? (
+              <div className="text-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading clients...</p>
+              </div>
+            ) : availableClients.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">No additional clients available to invite</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {availableClients.map((client) => (
+                  <div
+                    key={client.subject_id}
+                    className="flex items-center space-x-3 p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors"
+                  >
+                    <Checkbox
+                      id={`invite-${client.subject_id}`}
+                      checked={selectedClientsToInvite.includes(client.subject_id)}
+                      onCheckedChange={() => toggleClientSelection(client.subject_id)}
+                    />
+                    <Label
+                      htmlFor={`invite-${client.subject_id}`}
+                      className="flex-1 cursor-pointer"
+                    >
+                      <div className="font-medium">{client.name}</div>
+                      {client.sport && (
+                        <div className="text-xs text-muted-foreground">{client.sport}</div>
+                      )}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsInviteDialogOpen(false)
+                  setSelectedClientsToInvite([])
+                }}
+                className="flex-1"
+                disabled={isInviting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleInviteParticipants}
+                className="flex-1"
+                disabled={isInviting || selectedClientsToInvite.length === 0 || isLoadingClients}
+              >
+                {isInviting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Inviting...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Invite {selectedClientsToInvite.length > 0 ? `(${selectedClientsToInvite.length})` : ''}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

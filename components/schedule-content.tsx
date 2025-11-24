@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { ChevronLeft, ChevronRight, Plus, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import ScheduleSessionPanel from "@/components/schedule-session-panel"
 import SessionDetailsPanel from "@/components/session-details-panel"
 import { type Session } from "@/lib/sessions-data"
@@ -17,6 +18,7 @@ export default function ScheduleContent() {
   const [isLoadingSessions, setIsLoadingSessions] = useState(true)
   const [isCoach, setIsCoach] = useState(true) // Default to coach, will be updated
   const [userFirstName, setUserFirstName] = useState<string>("")
+  const [selectedDaySessions, setSelectedDaySessions] = useState<{ date: Date; sessions: Session[] } | null>(null)
 
   // Fetch user groups and profile to determine role and get first name
   useEffect(() => {
@@ -186,13 +188,22 @@ export default function ScheduleContent() {
   }
 
   const getSessionsForDate = (date: Date) => {
-    return sessions.filter((session) => {
+    const daySessions = sessions.filter((session) => {
       const sessionDate = new Date(session.date)
       return (
         sessionDate.getDate() === date.getDate() &&
         sessionDate.getMonth() === date.getMonth() &&
         sessionDate.getFullYear() === date.getFullYear()
       )
+    })
+    
+    // Sort by time (most recent/latest time first - descending)
+    return daySessions.sort((a, b) => {
+      const timeA = a.time.split(':').map(Number)
+      const timeB = b.time.split(':').map(Number)
+      const minutesA = timeA[0] * 60 + timeA[1]
+      const minutesB = timeB[0] * 60 + timeB[1]
+      return minutesB - minutesA // Descending order (latest first)
     })
   }
 
@@ -479,8 +490,9 @@ export default function ScheduleContent() {
                       date.getMonth() === new Date().getMonth() &&
                       date.getFullYear() === new Date().getFullYear()
 
-                    const visibleSessions = daySessions.slice(0, 4)
-                    const remainingSessions = daySessions.length - visibleSessions.length
+                    // Show only 2 sessions (most recent first)
+                    const visibleSessions = daySessions.slice(0, 2)
+                    const hasMoreSessions = daySessions.length > 2
 
                     return (
                       <div
@@ -506,10 +518,14 @@ export default function ScheduleContent() {
                               <span className="truncate font-medium text-foreground">{session.title}</span>
                             </button>
                           ))}
-                          {remainingSessions > 0 && (
-                            <div className="text-[10px] text-muted-foreground px-1.5 py-0.5">
-                              {remainingSessions} more event{remainingSessions > 1 ? "s" : ""}...
-                            </div>
+                          {hasMoreSessions && (
+                            <button
+                              onClick={() => setSelectedDaySessions({ date, sessions: daySessions })}
+                              className="w-full text-left px-1.5 py-0.5 rounded text-[11px] transition-colors hover:opacity-80 flex items-center gap-1.5 group text-muted-foreground hover:text-foreground"
+                            >
+                              <Plus className="w-3 h-3 flex-shrink-0" />
+                              <span className="text-[10px]">{daySessions.length - 2} more</span>
+                            </button>
                           )}
                         </div>
                       </div>
@@ -533,6 +549,55 @@ export default function ScheduleContent() {
 
       {/* Session Details Panel */}
       {selectedSession && <SessionDetailsPanel session={selectedSession} onClose={() => setSelectedSession(null)} />}
+
+      {/* Day Sessions Dialog */}
+      <Dialog open={selectedDaySessions !== null} onOpenChange={(open) => !open && setSelectedDaySessions(null)}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedDaySessions && (
+                <>
+                  Sessions for {selectedDaySessions.date.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    month: 'long', 
+                    day: 'numeric',
+                    year: 'numeric'
+                  })}
+                </>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 mt-4">
+            {selectedDaySessions?.sessions.map((session) => (
+              <button
+                key={session.id}
+                onClick={() => {
+                  handleSelectSession(session)
+                  setSelectedDaySessions(null)
+                }}
+                className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`w-3 h-3 rounded-full flex-shrink-0 mt-1 ${
+                      session.type === "1:1" ? "bg-blue-500" : session.type === "mocap" ? "bg-orange-500" : "bg-purple-500"
+                    }`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold text-foreground">{session.time}</span>
+                    </div>
+                    <h3 className="text-base font-medium text-foreground mb-1">{session.title}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {session.type === "1:1" ? "Virtual 1:1 Session" : session.type === "mocap" ? "In-Person 1:1 Motion Capture Session" : "Virtual Group Session"}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
