@@ -23,7 +23,7 @@ const sesClient = new SESClient({
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id?: string; sessionId?: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -35,7 +35,9 @@ export async function POST(
       );
     }
 
-    const { id: sessionId } = await params;
+    // Support both 'id' and 'sessionId' parameter names for compatibility
+    const resolvedParams = await params;
+    const sessionId = resolvedParams.id || resolvedParams.sessionId;
     const { subjectIds } = await req.json();
 
     if (!sessionId) {
