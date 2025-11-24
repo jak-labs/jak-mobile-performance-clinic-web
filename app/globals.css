@@ -181,11 +181,14 @@
     fill: none !important;
   }
 
-  /* Fix date input width on iOS to prevent overflow */
+  /* Fix date input width and height on iOS to match other inputs */
   input[type="date"] {
     width: 100% !important;
     max-width: 100% !important;
+    min-width: 0 !important;
     box-sizing: border-box !important;
+    height: 2.25rem !important; /* Match h-9 (36px) */
+    flex: 1 1 0% !important;
   }
 
   /* Force full width for form inputs in AddClientPanel */

@@ -786,25 +786,25 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <div className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-sm">AI Movement Analysis</h3>
+      <div className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide min-w-0">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4 mb-4">
+          <h3 className="font-semibold text-sm whitespace-nowrap">AI Movement Analysis</h3>
           <Button
             onClick={handleExportSummary}
             disabled={isExporting || !sessionId || insights.length === 0}
             size="sm"
             variant="outline"
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 w-full sm:w-auto min-w-0 shrink-0"
           >
             {isExporting ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Exporting...</span>
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                <span className="truncate">Exporting...</span>
               </>
             ) : (
               <>
-                <Download className="h-4 w-4" />
-                <span>Export Session Summary</span>
+                <Download className="h-4 w-4 shrink-0" />
+                <span className="truncate">Export Session Summary</span>
               </>
             )}
           </Button>
@@ -854,12 +854,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
             }
 
             return (
-              <Card key={participantId} className="p-4">
-                <div className="space-y-4">
+              <Card key={participantId} className="p-4 min-w-0">
+                <div className="space-y-4 min-w-0">
                   {/* Header */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <Lightbulb className="h-4 w-4 text-yellow-500" />
-                    <h4 className="font-semibold text-base">🔥 AI Movement Summary – {participantName}</h4>
+                  <div className="flex items-center gap-2 mb-2 min-w-0">
+                    <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
+                    <h4 className="font-semibold text-base truncate min-w-0">🔥 AI Movement Summary – {participantName}</h4>
                   </div>
 
                   {latestInsight.exerciseName && (
@@ -873,18 +873,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                     <div className="space-y-2">
                       <h5 className="font-semibold text-sm">Movement Analysis</h5>
                       {latestInsight.movementQuality && (
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
                           <span className="font-medium">Movement Quality:</span> {latestInsight.movementQuality}
                         </p>
                       )}
                       {latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0 && (
-                        <div className="space-y-1">
+                        <div className="space-y-1 min-w-0">
                           <p className="text-sm font-medium text-muted-foreground">Movement Patterns:</p>
                           <ul className="space-y-1 text-sm text-muted-foreground">
                             {latestInsight.movementPatterns.map((pattern, idx) => (
-                              <li key={idx} className="flex items-start gap-2">
-                                <span className="text-primary mt-0.5">•</span>
-                                <span>{pattern}</span>
+                              <li key={idx} className="flex items-start gap-2 min-w-0">
+                                <span className="text-primary mt-0.5 shrink-0">•</span>
+                                <span className="break-words overflow-wrap-anywhere">{pattern}</span>
                               </li>
                             ))}
                           </ul>
@@ -897,29 +897,29 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   {latestInsight.postureMetrics && Object.keys(latestInsight.postureMetrics).length > 0 && (
                     <div className="space-y-2">
                       <h5 className="font-semibold text-sm">Posture Metrics</h5>
-                      <div className="space-y-1 text-sm">
+                      <div className="space-y-1 text-sm min-w-0">
                         {latestInsight.postureMetrics.spineLean && (
-                          <p className="text-muted-foreground">
+                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
                             <span className="font-medium">Spine Lean:</span> {latestInsight.postureMetrics.spineLean}
                           </p>
                         )}
                         {latestInsight.postureMetrics.neckFlexion && (
-                          <p className="text-muted-foreground">
+                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
                             <span className="font-medium">Neck Flexion:</span> {latestInsight.postureMetrics.neckFlexion}
                           </p>
                         )}
                         {latestInsight.postureMetrics.shoulderAlignment && (
-                          <p className="text-muted-foreground">
+                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
                             <span className="font-medium">Shoulder Alignment:</span> {latestInsight.postureMetrics.shoulderAlignment}
                           </p>
                         )}
                         {latestInsight.postureMetrics.pelvicSway && (
-                          <p className="text-muted-foreground">
+                          <p className="text-muted-foreground break-words overflow-wrap-anywhere">
                             <span className="font-medium">Pelvic Sway:</span> {latestInsight.postureMetrics.pelvicSway}
                           </p>
                         )}
                         {latestInsight.postureMetrics.additionalMetrics?.map((metric, idx) => (
-                          <p key={idx} className="text-muted-foreground">{metric}</p>
+                          <p key={idx} className="text-muted-foreground break-words overflow-wrap-anywhere">{metric}</p>
                         ))}
                       </div>
                     </div>
@@ -927,9 +927,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
                   {/* Performance Interpretation */}
                   {latestInsight.performanceInterpretation && (
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <h5 className="font-semibold text-sm">Performance Interpretation</h5>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
                         {latestInsight.performanceInterpretation}
                       </p>
                     </div>
@@ -937,13 +937,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
                   {/* Performance Impact */}
                   {latestInsight.performanceImpact && latestInsight.performanceImpact.length > 0 && (
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <h5 className="font-semibold text-sm">Performance Impact</h5>
                       <ul className="space-y-1 text-sm text-muted-foreground">
                         {latestInsight.performanceImpact.map((impact, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
-                            <span className="text-destructive mt-0.5">•</span>
-                            <span>{impact}</span>
+                          <li key={idx} className="flex items-start gap-2 min-w-0">
+                            <span className="text-destructive mt-0.5 shrink-0">•</span>
+                            <span className="break-words overflow-wrap-anywhere">{impact}</span>
                           </li>
                         ))}
                       </ul>
@@ -991,15 +991,15 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
                   {/* Risk Level */}
                   {latestInsight.riskLevel && (
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <h5 className="font-semibold text-sm">Risk Level</h5>
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{getRiskEmoji(latestInsight.riskLevel)}</span>
-                        <span className={`px-2 py-1 rounded text-xs font-semibold text-white ${getRiskColor(latestInsight.riskLevel)}`}>
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <span className="text-lg shrink-0">{getRiskEmoji(latestInsight.riskLevel)}</span>
+                        <span className={`px-2 py-1 rounded text-xs font-semibold text-white shrink-0 ${getRiskColor(latestInsight.riskLevel)}`}>
                           {latestInsight.riskLevel}
                         </span>
                         {latestInsight.riskDescription && (
-                          <span className="text-sm text-muted-foreground">{latestInsight.riskDescription}</span>
+                          <span className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">{latestInsight.riskDescription}</span>
                         )}
                       </div>
                     </div>
@@ -1007,13 +1007,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
                   {/* Targeted Recommendations */}
                   {latestInsight.targetedRecommendations && latestInsight.targetedRecommendations.length > 0 && (
-                    <div className="space-y-2 pt-2 border-t border-border">
+                    <div className="space-y-2 pt-2 border-t border-border min-w-0">
                       <h5 className="font-semibold text-sm">Targeted Recommendations</h5>
                       <ul className="space-y-1 text-sm text-muted-foreground">
                         {latestInsight.targetedRecommendations.map((rec, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
-                            <span className="text-primary mt-0.5">•</span>
-                            <span>{rec}</span>
+                          <li key={idx} className="flex items-start gap-2 min-w-0">
+                            <span className="text-primary mt-0.5 shrink-0">•</span>
+                            <span className="break-words overflow-wrap-anywhere">{rec}</span>
                           </li>
                         ))}
                       </ul>
