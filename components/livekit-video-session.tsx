@@ -887,22 +887,42 @@ function RoomContent({
       case 'spotlight':
         // Spotlight layout: use LiveKit's FocusLayoutContainer with CarouselLayout and FocusLayout
         // Based on: https://github.com/livekit/components-js/blob/main/packages/react/src/prefabs/VideoConference.tsx
-        // Priority: 1. Current logged-in user (localParticipant), 2. Manually selected (spotlightParticipantId), 3. Other participants, 4. Coach
+        // For 1:1 sessions: Participant in big box, Coach in small box
+        // For group sessions: Priority: 1. Manually selected, 2. Other participants, 3. Coach
         let spotlightParticipant: typeof participants[0] | undefined
         
-        // First priority: current logged-in user (local participant)
-        if (localParticipant?.identity) {
-          spotlightParticipant = participants.find((p) => p.identity === localParticipant.identity)
-        }
-        
-        // Second priority: manually selected participant
-        if (!spotlightParticipant && spotlightParticipantId) {
-          spotlightParticipant = participants.find((p) => p.identity === spotlightParticipantId)
-        }
-        
-        // Third priority: other participants or coach
-        if (!spotlightParticipant) {
-          spotlightParticipant = otherParticipants[0] || coachParticipant
+        // For 1:1 sessions (single), prioritize participant over coach
+        if (sessionType === 'single') {
+          // First priority: manually selected participant
+          if (spotlightParticipantId) {
+            spotlightParticipant = participants.find((p) => p.identity === spotlightParticipantId)
+          }
+          
+          // Second priority: participant (not coach) - this is the main change for 1:1
+          if (!spotlightParticipant && otherParticipants.length > 0) {
+            spotlightParticipant = otherParticipants[0]
+          }
+          
+          // Third priority: coach as fallback
+          if (!spotlightParticipant) {
+            spotlightParticipant = coachParticipant
+          }
+        } else {
+          // For group sessions, keep original behavior
+          // First priority: current logged-in user (local participant)
+          if (localParticipant?.identity) {
+            spotlightParticipant = participants.find((p) => p.identity === localParticipant.identity)
+          }
+          
+          // Second priority: manually selected participant
+          if (!spotlightParticipant && spotlightParticipantId) {
+            spotlightParticipant = participants.find((p) => p.identity === spotlightParticipantId)
+          }
+          
+          // Third priority: other participants or coach
+          if (!spotlightParticipant) {
+            spotlightParticipant = otherParticipants[0] || coachParticipant
+          }
         }
 
         if (!spotlightParticipant) {
