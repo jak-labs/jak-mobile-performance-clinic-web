@@ -6,7 +6,8 @@ import { getAIInsightsBySession, getAllAIInsightsForSession } from '@/lib/dynamo
 import { saveAISummary, getAllAISummariesForSession } from '@/lib/dynamodb-ai-summary';
 import OpenAI from 'openai';
 import { randomUUID } from 'crypto';
-import puppeteer from 'puppeteer';
+import puppeteerCore from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -248,7 +249,7 @@ Focus on:
     const pdfBuffer = pdfBuffers[0] || Buffer.alloc(0);
 
     // Return PDF as download
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
@@ -433,10 +434,16 @@ async function generatePDF(
 
   let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    // Configure Chromium for serverless environments (Netlify, AWS Lambda, etc.)
+    // @sparticuz/chromium works in both development and production serverless environments
+    const browserOptions: any = {
+      headless: chromium.headless,
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+    };
+
+    browser = await puppeteerCore.launch(browserOptions);
     
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
