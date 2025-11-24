@@ -440,7 +440,7 @@ export default function RevenueContent() {
         </div>
       </div>
 
-      <AddClientPanel isOpen={isAddClientOpen} onToggle={() => setIsAddClientOpen(!isAddClientOpen)} />
+      <AddClientPanel isOpen={isAddClientOpen} onClose={() => setIsAddClientOpen(false)} />
       <SubscriptionPlansPanel
         isOpen={isSubscriptionPlansOpen}
         onToggle={() => setIsSubscriptionPlansOpen(!isSubscriptionPlansOpen)}

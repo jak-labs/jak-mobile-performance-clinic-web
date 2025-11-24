@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
-import { ChevronRight, Calendar, Users, LinkIcon, Loader2, UserPlus } from "lucide-react"
+import { ChevronRight, Calendar, Users, LinkIcon, Loader2, UserPlus, X } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import AddClientPanel from "@/components/add-client-panel"
+import AddClientForm from "@/components/add-client-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -511,14 +511,22 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
             onClick={() => setIsAddClientOpen(false)}
           />
           <div className="relative z-[101] w-full max-w-2xl max-h-[90vh] overflow-hidden bg-muted border-2 border-border rounded-lg shadow-xl">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsAddClientOpen(false)}
+              className="absolute top-4 right-4 z-[102] h-8 w-8 rounded-full border border-border bg-background/95 hover:bg-background shadow-md"
+              aria-label="Close modal"
+            >
+              <X className="h-4 w-4" />
+            </Button>
             <div className="h-full w-full">
-              <AddClientPanel
-                isOpen={true}
-                onClose={() => setIsAddClientOpen(false)}
+              <AddClientForm
                 onClientAdded={() => {
                   setIsAddClientOpen(false)
                   fetchClients() // Refresh the client list
                 }}
+                onSuccess={() => setIsAddClientOpen(false)}
               />
             </div>
           </div>
