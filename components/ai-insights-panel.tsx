@@ -19,6 +19,10 @@ interface AIInsight {
     pelvicSway?: string
     additionalMetrics?: string[]
   }
+  movementQuality?: string
+  movementPatterns?: string[]
+  movementConsistency?: number
+  dynamicStability?: number
   performanceInterpretation?: string
   performanceImpact?: string[]
   balanceScore: number
@@ -42,8 +46,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true })
   const [insights, setInsights] = useState<AIInsight[]>([])
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const frameCollectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const firstAnalysisTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
+  // Frame buffer: Map<participantId, Array<{imageBase64: string, timestamp: number, sequenceNumber: number}>>
+  const framesBufferRef = useRef<Map<string, Array<{ imageBase64: string; timestamp: number; sequenceNumber: number }>>>(new Map())
+  const setupCompleteRef = useRef(false) // Track if intervals have been set up
   const [subjectName, setSubjectName] = useState<string | null>(null)
   const [isLoadingInsights, setIsLoadingInsights] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -136,6 +145,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
     return null
   }
+
+  // Use refs for values that change frequently to avoid re-running useEffect
+  const participantInfoRef = useRef(participantInfo)
+  const subjectNameRef = useRef(subjectName)
+  const sessionIdRef = useRef(sessionId)
+  const saveInsightsToStorageRef = useRef(saveInsightsToStorage)
 
   // Reset loaded flag when sessionId changes
   useEffect(() => {
@@ -279,6 +294,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
             participantName: message.participantName || message.participantId,
             exerciseName: message.exerciseName,
             postureMetrics: message.postureMetrics,
+            movementQuality: message.movementQuality,
+            movementPatterns: message.movementPatterns,
+            movementConsistency: message.movementConsistency,
+            dynamicStability: message.dynamicStability,
             performanceInterpretation: message.performanceInterpretation,
             performanceImpact: message.performanceImpact,
             balanceScore: message.balanceScore || 0,
@@ -347,14 +366,57 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }, [room, tracks])
 
-  // Capture video frames and send for analysis periodically
+  // Update refs when values change (without triggering useEffect)
   useEffect(() => {
-    if (!room || !canvasRef.current) return
+    participantInfoRef.current = participantInfo
+  }, [participantInfo])
 
-    const analyzeFrames = async () => {
-      // Only analyze if room is connected
+  useEffect(() => {
+    subjectNameRef.current = subjectName
+  }, [subjectName])
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId
+  }, [sessionId])
+
+  useEffect(() => {
+    saveInsightsToStorageRef.current = saveInsightsToStorage
+  }, [saveInsightsToStorage])
+
+  // Collect frames every 3 seconds and analyze every 30 seconds
+  // Only set up once when room and canvas are available
+  useEffect(() => {
+    if (!room || !canvasRef.current) {
+      console.log('[AI Insights] Skipping setup - room or canvas not available', { hasRoom: !!room, hasCanvas: !!canvasRef.current })
+      return
+    }
+
+    // Only set up intervals once
+    if (setupCompleteRef.current) {
+      console.log('[AI Insights] Intervals already set up, skipping')
+      return
+    }
+
+    console.log('[AI Insights] Setting up intervals for the first time')
+
+    // Clear any existing intervals/timeouts before setting up new ones (safety check)
+    if (frameCollectionIntervalRef.current) {
+      clearInterval(frameCollectionIntervalRef.current)
+      frameCollectionIntervalRef.current = null
+    }
+    if (analysisIntervalRef.current) {
+      clearInterval(analysisIntervalRef.current)
+      analysisIntervalRef.current = null
+    }
+    if (firstAnalysisTimeoutRef.current) {
+      clearTimeout(firstAnalysisTimeoutRef.current)
+      firstAnalysisTimeoutRef.current = null
+    }
+
+    const collectFrame = () => {
+      // Only collect if room is connected
       if (!room || room.state !== ConnectionState.Connected) {
-        console.log('[AI Insights] Room not connected, skipping analysis')
+        console.log('[AI Insights] Room not connected, skipping frame collection')
         return
       }
 
@@ -370,14 +432,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         return
       }
 
-      const videoElementsCount = videoElementsRef.current.size
-      console.log(`[AI Insights] Starting analysis - ${videoElementsCount} video elements, sessionOwnerId: ${sessionOwnerId}`)
-
-      // Analyze each participant's video (analyze whoever is in session - for mocap, subject is not in session)
+      // Collect frames from each participant's video
       for (const [participantId, videoElement] of videoElementsRef.current.entries()) {
         if (!videoElement || videoElement.readyState < 2) continue
-
-        console.log(`[AI Insights] Analyzing participant: ${participantId}`)
 
         try {
           canvas.width = videoElement.videoWidth || 640
@@ -387,18 +444,86 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
           ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
 
-          // Convert to base64
-          const imageBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
+          // Convert to base64 with reduced quality (0.6) to manage token usage
+          const imageBase64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1]
 
-          // Use subject name from schedule if available, otherwise use participant name
-          const displayName = subjectName || participantInfo[participantId]?.fullName || participantId
+          // Get or create frame buffer for this participant
+          if (!framesBufferRef.current.has(participantId)) {
+            framesBufferRef.current.set(participantId, [])
+          }
 
-          // Send for analysis
+          const buffer = framesBufferRef.current.get(participantId)!
+          const sequenceNumber = buffer.length
+          const timestamp = sequenceNumber * 3 // Each frame is 3 seconds apart
+
+          // Add frame to buffer (keep max 10 frames)
+          buffer.push({
+            imageBase64,
+            timestamp,
+            sequenceNumber,
+          })
+
+          // Limit buffer to 10 frames (30 seconds total)
+          if (buffer.length > 10) {
+            buffer.shift() // Remove oldest frame
+            // Adjust sequence numbers
+            buffer.forEach((frame, idx) => {
+              frame.sequenceNumber = idx
+              frame.timestamp = idx * 3
+            })
+          }
+
+          console.log(`[AI Insights] Collected frame ${sequenceNumber + 1} for participant ${participantId} (${buffer.length}/10 frames)`)
+        } catch (error) {
+          console.error(`[AI Insights] Error collecting frame for ${participantId}:`, error)
+        }
+      }
+    }
+
+    const analyzeMovementSequence = async () => {
+      // Only analyze if room is connected
+      if (!room || room.state !== ConnectionState.Connected) {
+        console.log('[AI Insights] Room not connected, skipping analysis')
+        return
+      }
+
+      const videoElementsCount = videoElementsRef.current.size
+      console.log(`[AI Insights] Starting movement analysis - ${videoElementsCount} video elements, sessionOwnerId: ${sessionOwnerId}`)
+
+      // Analyze each participant's collected frames
+      const participantsToAnalyze = Array.from(framesBufferRef.current.entries())
+      console.log(`[AI Insights] Found ${participantsToAnalyze.length} participant(s) with frame buffers`)
+      
+      if (participantsToAnalyze.length === 0) {
+        console.log(`[AI Insights] No participants with frames to analyze`)
+        return
+      }
+
+      for (const [participantId, frames] of participantsToAnalyze) {
+        if (frames.length === 0) {
+          console.log(`[AI Insights] No frames collected for participant ${participantId}, skipping`)
+          continue
+        }
+
+        console.log(`[AI Insights] Analyzing ${frames.length} frames for participant: ${participantId} (will analyze even if less than 10 frames)`)
+
+        // Use subject name from schedule if available, otherwise use participant name
+        // Use refs to get latest values without causing re-renders
+        const currentParticipantInfo = participantInfoRef.current
+        const currentSubjectName = subjectNameRef.current
+        const displayName = currentSubjectName || currentParticipantInfo[participantId]?.fullName || participantId
+
+        try {
+          // Send frames for movement analysis
           const response = await fetch('/api/ai/analyze-movement', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              imageBase64,
+              frames: frames.map(f => ({
+                imageBase64: f.imageBase64,
+                timestamp: f.timestamp,
+                sequenceNumber: f.sequenceNumber,
+              })),
               participantName: displayName,
               participantId,
             }),
@@ -433,6 +558,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                 participantId,
                 participantName: displayName,
                 postureMetrics: data.analysis.postureMetrics,
+                movementQuality: data.analysis.movementQuality,
+                movementPatterns: data.analysis.movementPatterns,
+                movementConsistency: data.analysis.movementConsistency,
+                dynamicStability: data.analysis.dynamicStability,
                 performanceInterpretation: data.analysis.performanceInterpretation,
                 performanceImpact: data.analysis.performanceImpact,
                 balanceScore: data.analysis.balanceScore || 0,
@@ -449,22 +578,24 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                 const filtered = prev.filter(
                   (i) => i.participantId !== newInsight.participantId
                 )
-                // Add new insight and keep last 50 total (increased from 20 to accommodate saved insights)
+                // Add new insight and keep last 50 total
                 const updated = [...filtered, newInsight].slice(-50)
-                // Save to localStorage whenever insights are updated
-                saveInsightsToStorage(updated)
+                console.log(`[AI Insights] Updated insights for ${participantId} at ${new Date().toISOString()}. Total insights: ${updated.length}`)
+                // Save to localStorage whenever insights are updated (use ref to get latest function)
+                saveInsightsToStorageRef.current(updated)
                 return updated
               })
 
               // Save insight to database
-              if (sessionId) {
+              const currentSessionId = sessionIdRef.current
+              if (currentSessionId) {
                 try {
-                  console.log(`[AI Insights] Attempting to save insight for sessionId: ${sessionId}, participantId: ${participantId}`)
+                  console.log(`[AI Insights] Attempting to save insight for sessionId: ${currentSessionId}, participantId: ${participantId}`)
                   const saveResponse = await fetch('/api/ai-insights/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      sessionId,
+                      sessionId: currentSessionId,
                       participantId,
                       participantName: displayName,
                       exerciseName: newInsight.exerciseName,
@@ -474,6 +605,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                       balanceScore: newInsight.balanceScore,
                       symmetryScore: newInsight.symmetryScore,
                       posturalEfficiency: newInsight.posturalEfficiency,
+                      movementQuality: newInsight.movementQuality,
+                      movementPatterns: newInsight.movementPatterns,
+                      movementConsistency: newInsight.movementConsistency,
+                      dynamicStability: newInsight.dynamicStability,
                       riskLevel: newInsight.riskLevel,
                       riskDescription: newInsight.riskDescription,
                       targetedRecommendations: newInsight.targetedRecommendations,
@@ -514,27 +649,68 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               } else {
                 console.warn(`[AI Insights] Cannot save insight - sessionId is missing`)
               }
+
+              // Clear frame buffer after successful analysis
+              framesBufferRef.current.set(participantId, [])
+              console.log(`[AI Insights] Cleared frame buffer for ${participantId} after successful analysis`)
+            } else {
+              console.warn(`[AI Insights] Analysis response missing analysis data for ${participantId}`)
             }
+          } else {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+            console.error(`[AI Insights] Failed to analyze movement for ${participantId}:`, errorData)
+            // Don't clear buffer on error - keep frames for next analysis
           }
         } catch (error) {
-          console.error(`[AI Insights] Error analyzing frame for ${participantId}:`, error)
+          console.error(`[AI Insights] Error analyzing movement sequence for ${participantId}:`, error)
+          // Don't clear buffer on error - keep frames for next analysis
         }
       }
       
-      console.log(`[AI Insights] Analysis cycle complete`)
+      console.log(`[AI Insights] Movement analysis cycle complete at ${new Date().toISOString()}`)
     }
 
-    // Analyze frames every 30 seconds to limit LLM API calls
-    console.log('[AI Insights] Setting up analysis interval (30 seconds)')
-    analyzeFrames() // Run once immediately
-    analysisIntervalRef.current = setInterval(analyzeFrames, 30000)
+    // Collect frames every 3 seconds
+    console.log('[AI Insights] Setting up frame collection interval (3 seconds)')
+    collectFrame() // Collect first frame immediately
+    frameCollectionIntervalRef.current = setInterval(collectFrame, 3000)
+
+    // Analyze collected frames every 30 seconds
+    // Start analysis after 30 seconds (to collect 10 frames first), then repeat every 30 seconds
+    console.log('[AI Insights] Setting up movement analysis interval (30 seconds) - will start after 30 seconds')
+    
+    // First analysis after 30 seconds
+    firstAnalysisTimeoutRef.current = setTimeout(() => {
+      console.log('[AI Insights] Running first analysis after 30 seconds')
+      analyzeMovementSequence()
+      // Then set up recurring interval
+      analysisIntervalRef.current = setInterval(analyzeMovementSequence, 30000)
+    }, 30000)
+
+    // Mark setup as complete
+    setupCompleteRef.current = true
 
     return () => {
+      console.log('[AI Insights] Cleaning up intervals')
+      if (frameCollectionIntervalRef.current) {
+        clearInterval(frameCollectionIntervalRef.current)
+        frameCollectionIntervalRef.current = null
+      }
       if (analysisIntervalRef.current) {
         clearInterval(analysisIntervalRef.current)
+        analysisIntervalRef.current = null
       }
+      // Clear first analysis timeout if component unmounts before it runs
+      if (firstAnalysisTimeoutRef.current) {
+        clearTimeout(firstAnalysisTimeoutRef.current)
+        firstAnalysisTimeoutRef.current = null
+      }
+      // Clear frame buffers on cleanup
+      framesBufferRef.current.clear()
+      // Reset setup flag so it can be set up again if needed
+      setupCompleteRef.current = false
     }
-  }, [room, participantInfo, tracks, subjectName, sessionId])
+  }, [room]) // Only depend on room - use refs for other values
 
   // Group insights by participant
   const insightsByParticipant = insights.reduce((acc, insight) => {
@@ -652,7 +828,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         <div className="text-sm text-muted-foreground text-center py-8">
           <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p>AI insights will appear here as participants move</p>
-          <p className="text-xs mt-2">Analysis runs every 30 seconds</p>
+          <p className="text-xs mt-2">Movement analysis runs every 30 seconds (10 frames over 30s)</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -690,6 +866,31 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                     <h5 className="font-medium text-sm text-muted-foreground">
                       {latestInsight.exerciseName}
                     </h5>
+                  )}
+
+                  {/* Movement Quality & Patterns (for multi-frame analysis) */}
+                  {(latestInsight.movementQuality || (latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0)) && (
+                    <div className="space-y-2">
+                      <h5 className="font-semibold text-sm">Movement Analysis</h5>
+                      {latestInsight.movementQuality && (
+                        <p className="text-sm text-muted-foreground">
+                          <span className="font-medium">Movement Quality:</span> {latestInsight.movementQuality}
+                        </p>
+                      )}
+                      {latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-muted-foreground">Movement Patterns:</p>
+                          <ul className="space-y-1 text-sm text-muted-foreground">
+                            {latestInsight.movementPatterns.map((pattern, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-primary mt-0.5">•</span>
+                                <span>{pattern}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {/* Posture Metrics */}
@@ -750,7 +951,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   )}
 
                   {/* Scores */}
-                  {(latestInsight.balanceScore > 0 || latestInsight.symmetryScore > 0 || latestInsight.posturalEfficiency) && (
+                  {(latestInsight.balanceScore > 0 || latestInsight.symmetryScore > 0 || latestInsight.posturalEfficiency || latestInsight.movementConsistency || latestInsight.dynamicStability) && (
                     <div className="space-y-2">
                       <h5 className="font-semibold text-sm">Scores</h5>
                       <div className="flex flex-wrap gap-4 text-sm">
@@ -770,6 +971,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                           <div>
                             <span className="text-muted-foreground">Postural Efficiency: </span>
                             <span className="font-semibold">{latestInsight.posturalEfficiency}</span>
+                          </div>
+                        )}
+                        {latestInsight.movementConsistency !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Movement Consistency: </span>
+                            <span className="font-semibold">{latestInsight.movementConsistency}</span>
+                          </div>
+                        )}
+                        {latestInsight.dynamicStability !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Dynamic Stability: </span>
+                            <span className="font-semibold">{latestInsight.dynamicStability}</span>
                           </div>
                         )}
                       </div>

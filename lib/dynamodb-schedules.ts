@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, GetCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, GetCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 // Initialize DynamoDB client
 // Use JAK_ prefixed vars for Netlify (AWS_* are reserved), fallback to AWS_* for local dev
@@ -171,6 +171,64 @@ export async function getAllSubjects(): Promise<Subject[]> {
     return (result.Items as Subject[]) || [];
   } catch (error) {
     console.error("Error getting subjects from DynamoDB:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update a session's status (e.g., mark as completed/ended)
+ */
+export async function updateSessionStatus(
+  userId: string,
+  sessionDateTime: string,
+  status: "scheduled" | "completed" | "cancelled" | "rescheduled"
+): Promise<void> {
+  try {
+    const now = new Date().toISOString();
+    
+    await docClient.send(
+      new UpdateCommand({
+        TableName: SCHEDULES_TABLE,
+        Key: {
+          user_id: userId,
+          session_date_time: sessionDateTime,
+        },
+        UpdateExpression: "SET #status = :status, updated_at = :updatedAt",
+        ExpressionAttributeNames: {
+          "#status": "status",
+        },
+        ExpressionAttributeValues: {
+          ":status": status,
+          ":updatedAt": now,
+        },
+      })
+    );
+  } catch (error) {
+    console.error("Error updating session status in DynamoDB:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update a session's status by session_id
+ */
+export async function updateSessionStatusById(
+  sessionId: string,
+  status: "scheduled" | "completed" | "cancelled" | "rescheduled",
+  userId?: string
+): Promise<void> {
+  try {
+    // First, get the session to find user_id and session_date_time
+    const session = await getSessionById(sessionId, userId);
+    
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    // Update using the session's user_id and session_date_time
+    await updateSessionStatus(session.user_id, session.session_date_time, status);
+  } catch (error) {
+    console.error("Error updating session status by ID in DynamoDB:", error);
     throw error;
   }
 }

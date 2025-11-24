@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Calendar, Clock, Users, LinkIcon, Video, ChevronRight, User } from "lucide-react"
+import { Calendar, Clock, Users, LinkIcon, Video, ChevronRight, User, Download, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useState, useEffect } from "react"
@@ -32,6 +32,8 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
   const [participantNames, setParticipantNames] = useState<ParticipantInfo[]>([])
   const [coachName, setCoachName] = useState<string | null>(null)
   const [isLoadingParticipants, setIsLoadingParticipants] = useState(true)
+  const [isDownloading, setIsDownloading] = useState(false)
+  
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
       weekday: "long",
@@ -39,6 +41,61 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
       month: "long",
       day: "numeric",
     })
+  }
+
+  // Check if session is expired (date is before today)
+  const isExpired = () => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0) // Reset time to start of day
+    
+    const sessionDate = new Date(session.date)
+    sessionDate.setHours(0, 0, 0, 0) // Reset time to start of day
+    
+    return sessionDate < today
+  }
+
+  const handleDownloadSummary = async () => {
+    if (!session.id) {
+      alert('Session ID is required')
+      return
+    }
+
+    setIsDownloading(true)
+    try {
+      const response = await fetch('/api/ai-insights/export-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: session.id }),
+      })
+
+      if (response.ok) {
+        // Check if response is PDF
+        const contentType = response.headers.get('content-type')
+        if (contentType && contentType.includes('application/pdf')) {
+          // Download PDF
+          const blob = await response.blob()
+          const url = window.URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `session-summary-${session.id}-${Date.now()}.pdf`
+          document.body.appendChild(a)
+          a.click()
+          window.URL.revokeObjectURL(url)
+          document.body.removeChild(a)
+        } else {
+          const errorData = await response.json()
+          alert(errorData.error || 'Failed to download summary')
+        }
+      } else {
+        const errorData = await response.json()
+        alert(errorData.error || 'Failed to download summary')
+      }
+    } catch (error: any) {
+      console.error('Error downloading summary:', error)
+      alert(error.message || 'Failed to download summary')
+    } finally {
+      setIsDownloading(false)
+    }
   }
 
   // Fetch participant names and coach name
@@ -176,31 +233,56 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
             )}
           </div>
 
-          {/* Session Link */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 font-semibold text-foreground">
-              <LinkIcon className="size-5" />
-              <span>Session Link</span>
-            </div>
-            <div className="space-y-2">
-              <div className="bg-background border border-border rounded-lg p-3 font-mono text-sm break-all">
-                {window.location.origin}
-                {session.link}
+          {/* Session Link - Only show for non-expired sessions */}
+          {!isExpired() && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 font-semibold text-foreground">
+                <LinkIcon className="size-5" />
+                <span>Session Link</span>
               </div>
-              <Button variant="outline" onClick={copyLink} className="w-full bg-transparent">
-                Copy Link
-              </Button>
+              <div className="space-y-2">
+                <div className="bg-background border border-border rounded-lg p-3 font-mono text-sm break-all">
+                  {window.location.origin}
+                  {session.link}
+                </div>
+                <Button variant="outline" onClick={copyLink} className="w-full bg-transparent">
+                  Copy Link
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Action Buttons */}
           <div className="space-y-3 pt-4 border-t border-border">
-            <Link href={session.link} className="block">
-              <Button className="w-full gap-2" size="lg">
-                <Video className="size-5" />
-                Join Session
+            {isExpired() ? (
+              // Expired session - show download button
+              <Button 
+                className="w-full gap-2" 
+                size="lg"
+                onClick={handleDownloadSummary}
+                disabled={isDownloading}
+              >
+                {isDownloading ? (
+                  <>
+                    <Loader2 className="size-5 animate-spin" />
+                    Downloading...
+                  </>
+                ) : (
+                  <>
+                    <Download className="size-5" />
+                    Download Session Summary Report
+                  </>
+                )}
               </Button>
-            </Link>
+            ) : (
+              // Active session - show join button
+              <Link href={session.link} className="block">
+                <Button className="w-full gap-2" size="lg">
+                  <Video className="size-5" />
+                  Join Session
+                </Button>
+              </Link>
+            )}
             <Button variant="outline" onClick={onClose} className="w-full bg-transparent" size="lg">
               Close
             </Button>

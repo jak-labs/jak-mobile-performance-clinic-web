@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone, Grid3x3, User, LayoutGrid } from "lucide-react"
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone, Grid3x3, User, LayoutGrid, XCircle, Loader2 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -210,6 +210,7 @@ function RoomContent({
   const fetchedParticipantsRef = useRef<Set<string>>(new Set())
   const [expectedParticipants, setExpectedParticipants] = useState<Array<{ id: string; name: string; isConnected: boolean }>>([])
   const [isLoadingExpectedParticipants, setIsLoadingExpectedParticipants] = useState(true)
+  const [isEndingSession, setIsEndingSession] = useState(false)
   const room = useRoomContext()
   const localParticipant = room.localParticipant
   const remoteParticipants = Array.from(room.remoteParticipants.values())
@@ -1112,7 +1113,7 @@ function RoomContent({
     <div className="relative w-full h-full flex overflow-hidden">
       <div
         className={`relative h-full flex flex-col transition-all duration-300 ease-in-out ${
-          isPanelOpen ? "md:w-[60%] w-full" : "w-full"
+          isPanelOpen ? "md:flex-[0_0_60%] w-full" : "w-full flex-1"
         }`}
       >
         {/* Main video area - Dynamic layout based on layoutMode */}
@@ -1238,8 +1239,8 @@ function RoomContent({
       </Button>
 
       <div
-        className={`hidden md:flex h-full border-l bg-background flex-col transition-all duration-300 ease-in-out overflow-hidden flex-shrink-0 ${
-          isPanelOpen ? "w-[40%] min-w-[500px] max-w-[700px]" : "w-0 min-w-0 border-0"
+        className={`hidden md:flex h-full border-l bg-background flex-col transition-all duration-300 ease-in-out overflow-hidden ${
+          isPanelOpen ? "flex-[1_1_0%] min-w-[500px]" : "w-0 min-w-0 border-0 flex-shrink-0"
         }`}
       >
         <Tabs defaultValue="session" className="flex-1 flex flex-col h-full">
@@ -1270,7 +1271,7 @@ function RoomContent({
 
           <TabsContent
             value="session"
-            className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide mt-0 h-[calc(100vh-120px)]"
+            className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide mt-0 h-[calc(100vh-120px)] flex flex-col"
           >
             {/* Session Name */}
             {sessionTitle && (
@@ -1344,6 +1345,59 @@ function RoomContent({
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">No participants found</div>
+            )}
+
+            {/* End Session Button - Only visible to coach */}
+            {isCoach && sessionId && (
+              <div className="pt-4 mt-auto border-t border-border flex-shrink-0">
+                <Button
+                  variant="destructive"
+                  className="w-full gap-2"
+                  size="lg"
+                  onClick={async () => {
+                    if (!sessionId) return
+                    
+                    if (!confirm('Are you sure you want to end this session? Once ended, no one will be able to join.')) {
+                      return
+                    }
+
+                    setIsEndingSession(true)
+                    try {
+                      const response = await fetch(`/api/sessions/${sessionId}/end`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                      })
+
+                      if (response.ok) {
+                        alert('Session ended successfully. The session is now closed.')
+                        // Optionally redirect or refresh
+                        window.location.reload()
+                      } else {
+                        const errorData = await response.json()
+                        alert(errorData.error || 'Failed to end session')
+                      }
+                    } catch (error: any) {
+                      console.error('Error ending session:', error)
+                      alert(error.message || 'Failed to end session')
+                    } finally {
+                      setIsEndingSession(false)
+                    }
+                  }}
+                  disabled={isEndingSession}
+                >
+                  {isEndingSession ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Ending Session...
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-5 w-5" />
+                      End Session
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
           </TabsContent>
 
