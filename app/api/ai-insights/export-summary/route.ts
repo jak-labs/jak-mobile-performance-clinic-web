@@ -432,18 +432,92 @@ async function generatePDF(
 </html>
   `;
 
-  let browser;
-  try {
-    // Configure Chromium for serverless environments (Netlify, AWS Lambda, etc.)
-    // @sparticuz/chromium works in both development and production serverless environments
-    const browserOptions: any = {
-      headless: chromium.headless,
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-    };
+    let browser;
+    try {
+      // Configure Chromium for serverless environments (Netlify, AWS Lambda, etc.)
+      // @sparticuz/chromium is designed for serverless and may not work in local dev
+      const isNetlify = process.env.NETLIFY === 'true' || process.env.NETLIFY === '1';
+      
+      let browserOptions: any;
+      
+      if (isNetlify) {
+        // Netlify/serverless: use @sparticuz/chromium
+        console.log('[PDF] Using @sparticuz/chromium for Netlify/serverless environment');
+        try {
+          const executablePath = await chromium.executablePath();
+          console.log('[PDF] Chromium executable path obtained:', executablePath ? 'Yes' : 'No');
+          
+          browserOptions = {
+            headless: chromium.headless,
+            args: [
+              ...chromium.args,
+              '--disable-gpu',
+              '--disable-dev-shm-usage',
+              '--disable-software-rasterizer',
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+            ],
+            defaultViewport: chromium.defaultViewport,
+            executablePath,
+          };
+        } catch (chromiumError) {
+          console.error('[PDF] Error getting Chromium executable path:', chromiumError);
+          throw new Error(`Failed to get Chromium executable: ${chromiumError instanceof Error ? chromiumError.message : String(chromiumError)}`);
+        }
+      } else {
+        // Local development: try to use system Chrome/Chromium
+        console.log('[PDF] Local development - attempting to use system Chrome/Chromium');
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        
+        // Common Chrome/Chromium paths
+        const possiblePaths = [
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', // macOS
+          '/usr/bin/google-chrome', // Linux
+          '/usr/bin/chromium-browser', // Linux
+          'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', // Windows
+          'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe', // Windows 32-bit
+        ];
+        
+        let executablePath: string | undefined;
+        for (const chromePath of possiblePaths) {
+          try {
+            await fs.access(chromePath);
+            executablePath = chromePath;
+            console.log(`[PDF] Found Chrome at: ${chromePath}`);
+            break;
+          } catch {
+            // Path doesn't exist, try next
+          }
+        }
+        
+        if (!executablePath) {
+          throw new Error(
+            'Chrome/Chromium not found. Please install Google Chrome or set CHROME_PATH environment variable. ' +
+            'For local development, you can install Chrome from https://www.google.com/chrome/'
+          );
+        }
+        
+        browserOptions = {
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+          defaultViewport: { width: 1920, height: 1080 },
+          executablePath,
+        };
+      }
 
-    browser = await puppeteerCore.launch(browserOptions);
+      console.log('[PDF] Launching browser with options:', {
+        headless: browserOptions.headless,
+        hasExecutablePath: !!browserOptions.executablePath,
+        executablePath: browserOptions.executablePath ? 
+          (browserOptions.executablePath.length > 50 ? 
+            browserOptions.executablePath.substring(0, 50) + '...' : 
+            browserOptions.executablePath) : 
+          'Not set',
+        argsCount: browserOptions.args?.length || 0,
+      });
+
+      browser = await puppeteerCore.launch(browserOptions);
     
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
