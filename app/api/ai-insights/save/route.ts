@@ -51,16 +51,30 @@ export async function POST(req: NextRequest) {
       riskDescription,
       targetedRecommendations,
       timestamp,
+      movementQuality,
+      movementPatterns,
+      movementConsistency,
+      dynamicStability,
     } = body;
 
     if (!sessionId || !participantId || !participantName) {
-      console.error('[API] Missing required fields:', {
-        hasSessionId: !!sessionId,
-        hasParticipantId: !!participantId,
-        hasParticipantName: !!participantName,
-      });
+      const missingFields = {
+        sessionId: !sessionId,
+        participantId: !participantId,
+        participantName: !participantName,
+      };
+      console.error('[API] Missing required fields:', missingFields);
+      console.error('[API] Received body:', JSON.stringify(body, null, 2));
       return NextResponse.json(
-        { error: 'sessionId, participantId, and participantName are required' },
+        { 
+          error: 'sessionId, participantId, and participantName are required',
+          missingFields,
+          received: {
+            hasSessionId: !!sessionId,
+            hasParticipantId: !!participantId,
+            hasParticipantName: !!participantName,
+          }
+        },
         { status: 400 }
       );
     }
@@ -91,6 +105,10 @@ export async function POST(req: NextRequest) {
       balance_score: balanceScore || 0,
       symmetry_score: symmetryScore || 0,
       postural_efficiency: posturalEfficiency,
+      movement_quality: movementQuality,
+      movement_patterns: movementPatterns,
+      movement_consistency: movementConsistency,
+      dynamic_stability: dynamicStability,
       risk_level: riskLevel,
       risk_description: riskDescription,
       targeted_recommendations: targetedRecommendations,

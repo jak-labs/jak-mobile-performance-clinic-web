@@ -40,9 +40,10 @@ interface AIInsightsPanelProps {
   participantInfo: Record<string, { firstName: string; lastName: string; fullName: string }>
   sessionOwnerId?: string | null
   sessionId?: string | null
+  sessionType?: string | null // "single", "group", or "mocap"
 }
 
-export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId }: AIInsightsPanelProps) {
+export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId, sessionType }: AIInsightsPanelProps) {
   const room = useRoomContext()
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true })
   const [insights, setInsights] = useState<AIInsight[]>([])
@@ -55,6 +56,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   const framesBufferRef = useRef<Map<string, Array<{ imageBase64: string; timestamp: number; sequenceNumber: number }>>>(new Map())
   const setupCompleteRef = useRef(false) // Track if intervals have been set up
   const [subjectName, setSubjectName] = useState<string | null>(null)
+  const [subjectId, setSubjectId] = useState<string | null>(null) // Store subject_id for mocap sessions
   const [isLoadingInsights, setIsLoadingInsights] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [exportMessage, setExportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -77,15 +79,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         const session = sessionData.session
 
         // Get subject_id (for single/mocap) or first subject_id from subject_ids (for group)
-        const subjectId = session.subject_id || (session.subject_ids && session.subject_ids[0])
+        const subjectIdFromSession = session.subject_id || (session.subject_ids && session.subject_ids[0])
 
-        if (!subjectId) {
+        if (!subjectIdFromSession) {
           console.log('[AI Insights] No subject_id found in session')
           return
         }
+        
+        // Store subject_id for use in analysis
+        setSubjectId(subjectIdFromSession)
 
         // Fetch subject name
-        const subjectResponse = await fetch(`/api/subjects/${subjectId}`)
+        const subjectResponse = await fetch(`/api/subjects/${subjectIdFromSession}`)
         if (!subjectResponse.ok) {
           console.error('[AI Insights] Failed to fetch subject data')
           return
@@ -98,7 +103,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         const name = subject.full_name || 
                      subject.name || 
                      (subject.f_name && subject.l_name ? `${subject.f_name} ${subject.l_name}` : null) ||
-                     subjectId
+                     subjectIdFromSession
 
         if (name) {
           setSubjectName(name)
@@ -372,9 +377,15 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     participantInfoRef.current = participantInfo
   }, [participantInfo])
 
+  const subjectIdRef = useRef<string | null>(null)
+  
   useEffect(() => {
     subjectNameRef.current = subjectName
   }, [subjectName])
+  
+  useEffect(() => {
+    subjectIdRef.current = subjectId
+  }, [subjectId])
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -490,10 +501,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
       const videoElementsCount = videoElementsRef.current.size
       console.log(`[AI Insights] Starting movement analysis - ${videoElementsCount} video elements, sessionOwnerId: ${sessionOwnerId}`)
+      console.log(`[AI Insights] Video element participant IDs:`, Array.from(videoElementsRef.current.keys()))
 
       // Analyze each participant's collected frames
       const participantsToAnalyze = Array.from(framesBufferRef.current.entries())
       console.log(`[AI Insights] Found ${participantsToAnalyze.length} participant(s) with frame buffers`)
+      console.log(`[AI Insights] Participants with frames:`, participantsToAnalyze.map(([id, frames]) => ({ id, frameCount: frames.length })))
       
       if (participantsToAnalyze.length === 0) {
         console.log(`[AI Insights] No participants with frames to analyze`)
@@ -512,7 +525,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         // Use refs to get latest values without causing re-renders
         const currentParticipantInfo = participantInfoRef.current
         const currentSubjectName = subjectNameRef.current
+        const currentSubjectId = subjectIdRef.current
         const displayName = currentSubjectName || currentParticipantInfo[participantId]?.fullName || participantId
+        
+        // For mocap sessions: coach is in session pointing camera at athlete
+        // Use subject_id as participantId so insights are attributed to the athlete, not the coach
+        // For other sessions: use subject_id if available, otherwise use LiveKit participantId
+        const isMocapSession = sessionType === 'mocap'
+        const insightParticipantId = (isMocapSession && currentSubjectId) ? currentSubjectId : (currentSubjectId || participantId)
+        
+        if (isMocapSession) {
+          console.log(`[AI Insights] Mocap session: Analyzing coach's video feed (${participantId}) but attributing to subject (${insightParticipantId})`)
+        }
 
         try {
           // Send frames for movement analysis
@@ -539,7 +563,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   // Send insight via data channel (for other participants to see)
                   const message = JSON.stringify({
                     type: 'ai-insight',
-                    participantId,
+                    participantId: insightParticipantId,
                     participantName: displayName,
                     ...data.analysis,
                   })
@@ -556,7 +580,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
               // Also update local state
               const newInsight: AIInsight = {
-                participantId,
+                participantId: insightParticipantId,
                 participantName: displayName,
                 postureMetrics: data.analysis.postureMetrics,
                 movementQuality: data.analysis.movementQuality,
@@ -576,12 +600,15 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
               setInsights((prev) => {
                 // Remove any existing insights for this participant (keep only latest)
+                // Also check if there are insights with different participantIds but same participantName
+                // This can happen if subject_id and LiveKit participantId are different
                 const filtered = prev.filter(
-                  (i) => i.participantId !== newInsight.participantId
+                  (i) => i.participantId !== newInsight.participantId && 
+                        i.participantName !== newInsight.participantName
                 )
                 // Add new insight and keep last 50 total
                 const updated = [...filtered, newInsight].slice(-50)
-                console.log(`[AI Insights] Updated insights for ${participantId} at ${new Date().toISOString()}. Total insights: ${updated.length}`)
+                console.log(`[AI Insights] Updated insights for ${insightParticipantId} (LiveKit: ${participantId}) at ${new Date().toISOString()}. Total insights: ${updated.length}`)
                 // Save to localStorage whenever insights are updated (use ref to get latest function)
                 saveInsightsToStorageRef.current(updated)
                 return updated
@@ -591,13 +618,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               const currentSessionId = sessionIdRef.current
               if (currentSessionId) {
                 try {
-                  console.log(`[AI Insights] Attempting to save insight for sessionId: ${currentSessionId}, participantId: ${participantId}`)
+                  console.log(`[AI Insights] Attempting to save insight for sessionId: ${currentSessionId}, participantId: ${insightParticipantId} (LiveKit: ${participantId})`)
                   const saveResponse = await fetch('/api/ai-insights/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       sessionId: currentSessionId,
-                      participantId,
+                      participantId: insightParticipantId,
                       participantName: displayName,
                       exerciseName: newInsight.exerciseName,
                       postureMetrics: newInsight.postureMetrics,
@@ -619,28 +646,61 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   
                   if (saveResponse.ok) {
                     const saveData = await saveResponse.json()
-                    console.log(`[AI Insights] Successfully saved insight to database for ${participantId}`, saveData)
+                    console.log(`[AI Insights] Successfully saved insight to database for ${insightParticipantId}`, saveData)
                   } else {
                     // Try to parse error response
-                    let errorData = {}
+                    let errorData: any = {}
                     const contentType = saveResponse.headers.get('content-type')
+                    const status = saveResponse.status
+                    const statusText = saveResponse.statusText
+                    
+                    console.error(`[AI Insights] Save failed - Status: ${status} ${statusText}, Content-Type: ${contentType}`)
+                    
                     try {
+                      // Clone the response so we can read it multiple times
+                      const responseClone = saveResponse.clone()
+                      
                       if (contentType && contentType.includes('application/json')) {
-                        errorData = await saveResponse.json()
+                        try {
+                          errorData = await responseClone.json()
+                          console.error(`[AI Insights] Error response (JSON):`, errorData)
+                        } catch (jsonError) {
+                          console.error(`[AI Insights] Failed to parse JSON error response:`, jsonError)
+                          // Try to get text instead
+                          const text = await responseClone.text()
+                          errorData = { 
+                            message: text || `HTTP ${status} ${statusText}`,
+                            rawText: text,
+                            jsonParseError: jsonError instanceof Error ? jsonError.message : String(jsonError)
+                          }
+                        }
                       } else {
-                        const text = await saveResponse.text()
-                        errorData = { message: text || `HTTP ${saveResponse.status} ${saveResponse.statusText}` }
+                        const text = await responseClone.text()
+                        errorData = { 
+                          message: text || `HTTP ${status} ${statusText}`,
+                          rawText: text || '(empty response body)'
+                        }
+                        console.error(`[AI Insights] Error response (text):`, text || '(empty)')
                       }
                     } catch (parseError) {
+                      console.error(`[AI Insights] Failed to parse error response:`, parseError)
                       errorData = { 
-                        message: `HTTP ${saveResponse.status} ${saveResponse.statusText}`,
-                        parseError: parseError instanceof Error ? parseError.message : String(parseError)
+                        message: `HTTP ${status} ${statusText}`,
+                        parseError: parseError instanceof Error ? parseError.message : String(parseError),
+                        stack: parseError instanceof Error ? parseError.stack : undefined
                       }
                     }
-                    console.error(`[AI Insights] Failed to save insight:`, {
-                      status: saveResponse.status,
-                      statusText: saveResponse.statusText,
-                      error: errorData
+                    
+                    console.error(`[AI Insights] Failed to save insight for ${insightParticipantId}:`, {
+                      status,
+                      statusText,
+                      contentType,
+                      error: errorData,
+                      requestData: {
+                        sessionId: currentSessionId,
+                        participantId: insightParticipantId,
+                        participantName: displayName
+                      }
                     })
                   }
                 } catch (saveError) {
@@ -713,18 +773,46 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }, [room]) // Only depend on room - use refs for other values
 
-  // Group insights by participant, excluding coach
+  // Group insights by participant
+  // For mocap sessions: insights are already attributed to subject_id, so don't filter by sessionOwnerId
+  // For other sessions: filter out coach (sessionOwnerId)
+  // Use participantName as the key to avoid duplicates when participantId differs (e.g., subject_id vs LiveKit ID)
   const insightsByParticipant = insights.reduce((acc, insight) => {
-    // Filter out coach (sessionOwnerId)
-    if (sessionOwnerId && insight.participantId === sessionOwnerId) {
+    const isMocapSession = sessionType === 'mocap'
+    
+    // For mocap sessions, insights are attributed to subject_id, so we don't need to filter
+    // For other sessions, filter out coach (sessionOwnerId)
+    if (!isMocapSession && sessionOwnerId && insight.participantId === sessionOwnerId) {
+      console.log(`[AI Insights] Filtering out coach insight: participantId=${insight.participantId}, sessionOwnerId=${sessionOwnerId}`)
       return acc
     }
-    if (!acc[insight.participantId]) {
-      acc[insight.participantId] = []
+    
+    // Use participantName as the key to group by actual participant, not just ID
+    // This prevents duplicates when the same person has different participantIds
+    const key = insight.participantName || insight.participantId
+    
+    if (!acc[key]) {
+      acc[key] = []
     }
-    acc[insight.participantId].push(insight)
+    acc[key].push(insight)
     return acc
   }, {} as Record<string, AIInsight[]>)
+  
+  // Sort insights within each group by timestamp (latest first) and keep only the latest one
+  Object.keys(insightsByParticipant).forEach(key => {
+    const group = insightsByParticipant[key]
+    group.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    // Keep only the latest insight per participant
+    insightsByParticipant[key] = [group[0]]
+  })
+  
+  // Debug logging
+  if (sessionId) {
+    console.log(`[AI Insights] Debug - Total insights: ${insights.length}, Filtered insights: ${Object.keys(insightsByParticipant).length}, sessionType: ${sessionType}, sessionOwnerId: ${sessionOwnerId}`)
+    if (insights.length > 0 && Object.keys(insightsByParticipant).length === 0) {
+      console.warn(`[AI Insights] All insights were filtered out! Insight participantIds:`, insights.map(i => i.participantId))
+    }
+  }
 
   // Get non-coach participant count
   const nonCoachParticipantCount = Object.keys(insightsByParticipant).length

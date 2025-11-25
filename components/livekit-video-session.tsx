@@ -1456,6 +1456,7 @@ function RoomContent({
               participantInfo={participantInfo}
               sessionOwnerId={sessionOwnerId}
               sessionId={sessionId}
+              sessionType={sessionType}
             />
           </TabsContent>
         </Tabs>

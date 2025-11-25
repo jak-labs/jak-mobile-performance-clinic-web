@@ -56,7 +56,7 @@ export async function saveAIInsight(
   // Format: session_id#insight_id
   const sortKey = `${insight.session_id}#${insight.insight_id}`;
   
-  const item = {
+  const item: any = {
     subject_id: insight.participant_id, // Partition key - Subject/Participant ID
     session_id: sortKey, // Sort key - Composite of session_id and insight_id
     insight_id: insight.insight_id, // Stored as attribute for reference
@@ -75,6 +75,20 @@ export async function saveAIInsight(
     timestamp: insight.timestamp,
     created_at: timestamp,
   };
+  
+  // Add movement analysis fields if present
+  if ('movement_quality' in insight) {
+    item.movement_quality = (insight as any).movement_quality;
+  }
+  if ('movement_patterns' in insight) {
+    item.movement_patterns = (insight as any).movement_patterns;
+  }
+  if ('movement_consistency' in insight) {
+    item.movement_consistency = (insight as any).movement_consistency;
+  }
+  if ('dynamic_stability' in insight) {
+    item.dynamic_stability = (insight as any).dynamic_stability;
+  }
 
   console.log('[DynamoDB] Attempting to save AI insight:', {
     tableName: AI_INSIGHTS_TABLE,
