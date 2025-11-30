@@ -5,6 +5,13 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Netlify Functions configuration
+# Increase timeout for PDF generation (max 50s for Enterprise, 26s for Pro, 10s for free)
+[[functions]]
+  directory = ".next/server/app/api"
+  included_files = ["**/*.js", "**/*.ts"]
+  node_bundler = "esbuild"
+
 # Note: If secret scanning fails, you may need to disable it in Netlify Dashboard:
 # Site settings → Build & deploy → Environment → Secret scanning
 # Or clear build cache and redeploy

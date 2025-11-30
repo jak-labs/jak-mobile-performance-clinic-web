@@ -492,6 +492,8 @@ async function generatePDF(
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--single-process', // Important for serverless environments
+          '--disable-plugins',
+          '--disable-extensions',
         ],
         defaultViewport: chromium.defaultViewport,
         executablePath,
@@ -512,15 +514,16 @@ async function generatePDF(
       
       const page = await browser.newPage();
       
-      // Set a timeout for page content loading (30 seconds)
+      // Use 'load' instead of 'networkidle0' for faster rendering (saves ~5-10 seconds)
+      // Set a shorter timeout for page content loading (10 seconds)
       await Promise.race([
-        page.setContent(html, { waitUntil: 'networkidle0' }),
+        page.setContent(html, { waitUntil: 'load', timeout: 10000 }),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('PDF generation timeout: page content loading exceeded 30 seconds')), 30000)
+          setTimeout(() => reject(new Error('PDF generation timeout: page content loading exceeded 10 seconds')), 10000)
         )
       ]);
       
-      // Set a timeout for PDF generation (30 seconds)
+      // Set a shorter timeout for PDF generation (15 seconds)
       const pdfBuffer = await Promise.race([
         page.pdf({
           format: 'A4',
@@ -531,9 +534,10 @@ async function generatePDF(
             left: '15mm',
           },
           printBackground: true,
+          timeout: 15000,
         }),
         new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('PDF generation timeout: PDF creation exceeded 30 seconds')), 30000)
+          setTimeout(() => reject(new Error('PDF generation timeout: PDF creation exceeded 15 seconds')), 15000)
         )
       ]);
       
