@@ -97,16 +97,52 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
           window.URL.revokeObjectURL(url)
           document.body.removeChild(a)
         } else {
-          const errorData = await response.json()
-          alert(errorData.error || 'Failed to download summary')
+          // Response is not PDF - try to parse as JSON or text
+          const contentType = response.headers.get('content-type')
+          let errorMessage = 'Failed to download summary'
+          
+          try {
+            if (contentType && contentType.includes('application/json')) {
+              const errorData = await response.json()
+              errorMessage = errorData.error || errorMessage
+            } else {
+              // Response might be HTML error page
+              const text = await response.text()
+              console.error('[Session Details] Non-JSON response:', text.substring(0, 200))
+              errorMessage = `Server error (${response.status}): Received non-PDF response`
+            }
+          } catch (parseError) {
+            console.error('[Session Details] Error parsing response:', parseError)
+            errorMessage = `Server error (${response.status}): ${response.statusText}`
+          }
+          
+          alert(errorMessage)
         }
       } else {
-        const errorData = await response.json()
-        alert(errorData.error || 'Failed to download summary')
+        // Handle error response - check content type first
+        const contentType = response.headers.get('content-type')
+        let errorMessage = `Failed to download summary (${response.status})`
+        
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorMessage
+          } else {
+            // Response might be HTML error page
+            const text = await response.text()
+            console.error('[Session Details] Error response (non-JSON):', text.substring(0, 200))
+            errorMessage = `Server error (${response.status}): ${response.statusText}`
+          }
+        } catch (parseError) {
+          console.error('[Session Details] Error parsing error response:', parseError)
+          errorMessage = `Server error (${response.status}): ${response.statusText}`
+        }
+        
+        alert(errorMessage)
       }
     } catch (error: any) {
       console.error('Error downloading summary:', error)
-      alert(error.message || 'Failed to download summary')
+      alert(error.message || 'Failed to download summary. Please try again.')
     } finally {
       setIsDownloading(false)
     }

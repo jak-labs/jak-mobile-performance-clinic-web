@@ -24,7 +24,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { sessionId, participantId } = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      console.error('[API] Error parsing request body:', parseError);
+      return NextResponse.json(
+        { error: 'Invalid JSON in request body' },
+        { status: 400 }
+      );
+    }
+
+    const { sessionId, participantId } = body;
 
     if (!sessionId) {
       return NextResponse.json(
@@ -239,24 +250,45 @@ Focus on:
 
     // Generate PDF for each summary
     const pdfBuffers: Buffer[] = [];
-    for (const summaryResult of summaries) {
-      const pdfBuffer = await generatePDF(summaryResult, dbSession);
-      pdfBuffers.push(pdfBuffer);
+    try {
+      for (const summaryResult of summaries) {
+        try {
+          const pdfBuffer = await generatePDF(summaryResult, dbSession);
+          pdfBuffers.push(pdfBuffer);
+        } catch (pdfError: any) {
+          console.error(`[API] Error generating PDF for participant ${summaryResult.participantId}:`, pdfError);
+          // Continue with other participants, but log the error
+          throw new Error(`Failed to generate PDF: ${pdfError.message || 'Unknown error'}`);
+        }
+      }
+
+      // If only one summary, return it directly as PDF
+      // Otherwise, we could combine them or return the first one
+      const pdfBuffer = pdfBuffers[0] || Buffer.alloc(0);
+
+      if (pdfBuffer.length === 0) {
+        return NextResponse.json(
+          { error: 'Failed to generate PDF - no PDF data was created' },
+          { status: 500 }
+        );
+      }
+
+      // Return PDF as download
+      return new NextResponse(pdfBuffer as any, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="ai-insights-summary-${sessionId}-${Date.now()}.pdf"`,
+          'Content-Length': pdfBuffer.length.toString(),
+        },
+      });
+    } catch (pdfGenError: any) {
+      console.error('[API] Error during PDF generation:', pdfGenError);
+      return NextResponse.json(
+        { error: `PDF generation failed: ${pdfGenError.message || 'Unknown error'}` },
+        { status: 500 }
+      );
     }
-
-    // If only one summary, return it directly as PDF
-    // Otherwise, we could combine them or return the first one
-    const pdfBuffer = pdfBuffers[0] || Buffer.alloc(0);
-
-    // Return PDF as download
-    return new NextResponse(pdfBuffer as any, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="ai-insights-summary-${sessionId}-${Date.now()}.pdf"`,
-        'Content-Length': pdfBuffer.length.toString(),
-      },
-    });
   } catch (error: any) {
     console.error('[API] Error exporting AI insights summary:', error);
     return NextResponse.json(
@@ -477,28 +509,46 @@ async function generatePDF(
       });
 
       browser = await puppeteerCore.launch(browserOptions);
-    
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      margin: {
-        top: '20mm',
-        right: '15mm',
-        bottom: '20mm',
-        left: '15mm',
-      },
-      printBackground: true,
-    });
-    
-    await browser.close();
-    return Buffer.from(pdfBuffer);
-  } catch (error) {
-    if (browser) {
+      
+      const page = await browser.newPage();
+      
+      // Set a timeout for page content loading (30 seconds)
+      await Promise.race([
+        page.setContent(html, { waitUntil: 'networkidle0' }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('PDF generation timeout: page content loading exceeded 30 seconds')), 30000)
+        )
+      ]);
+      
+      // Set a timeout for PDF generation (30 seconds)
+      const pdfBuffer = await Promise.race([
+        page.pdf({
+          format: 'A4',
+          margin: {
+            top: '20mm',
+            right: '15mm',
+            bottom: '20mm',
+            left: '15mm',
+          },
+          printBackground: true,
+        }),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('PDF generation timeout: PDF creation exceeded 30 seconds')), 30000)
+        )
+      ]);
+      
       await browser.close();
+      return Buffer.from(pdfBuffer);
+    } catch (error: any) {
+      console.error('[PDF] Error during PDF generation:', error);
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (closeError) {
+          console.error('[PDF] Error closing browser:', closeError);
+        }
+      }
+      throw new Error(`PDF generation failed: ${error.message || 'Unknown error'}`);
     }
-    throw error;
-  }
 }
 

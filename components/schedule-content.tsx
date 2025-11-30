@@ -491,9 +491,9 @@ export default function ScheduleContent() {
                       date.getMonth() === new Date().getMonth() &&
                       date.getFullYear() === new Date().getFullYear()
 
-                    // Show only 2 sessions (most recent first)
-                    const visibleSessions = daySessions.slice(0, 2)
-                    const hasMoreSessions = daySessions.length > 2
+                    // Show only 1 session (most recent first), or "Show Sessions" button if multiple
+                    const firstSession = daySessions[0]
+                    const hasMultipleSessions = daySessions.length > 1
 
                     return (
                       <div
@@ -504,34 +504,33 @@ export default function ScheduleContent() {
                           {day}
                         </div>
                         <div className="flex-1 min-h-0 flex flex-col">
-                          {/* Sessions list - scrollable if needed */}
-                          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide space-y-0.5">
-                            {visibleSessions.map((session) => (
+                          {firstSession ? (
+                            <>
+                              {/* Show first session */}
                               <button
-                                key={session.id}
-                                onClick={() => handleSelectSession(session)}
+                                onClick={() => handleSelectSession(firstSession)}
                                 className="w-full text-left px-1.5 py-0.5 rounded text-[11px] transition-colors hover:opacity-80 flex items-center gap-1.5 group"
                               >
                                 <div
                                   className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                    session.type === "1:1" ? "bg-blue-500" : session.type === "mocap" ? "bg-orange-500" : "bg-purple-500"
+                                    firstSession.type === "1:1" ? "bg-blue-500" : firstSession.type === "mocap" ? "bg-orange-500" : "bg-purple-500"
                                   }`}
                                 />
-                                <span className="text-muted-foreground flex-shrink-0">{session.time}</span>
-                                <span className="truncate font-medium text-foreground">{session.title}</span>
+                                <span className="text-muted-foreground flex-shrink-0">{firstSession.time}</span>
+                                <span className="truncate font-medium text-foreground">{firstSession.title}</span>
                               </button>
-                            ))}
-                          </div>
-                          {/* "+ More" button - always visible, never cut off */}
-                          {hasMoreSessions && (
-                            <button
-                              onClick={() => setSelectedDaySessions({ date, sessions: daySessions })}
-                              className="w-full text-left px-1.5 py-0.5 rounded text-[10px] transition-colors hover:opacity-80 flex items-center gap-1.5 group text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5"
-                            >
-                              <Plus className="w-2.5 h-2.5 flex-shrink-0" />
-                              <span className="text-[9px] whitespace-nowrap">{daySessions.length - 2} more</span>
-                            </button>
-                          )}
+                              {/* "Show Sessions" button if multiple sessions */}
+                              {hasMultipleSessions && (
+                                <button
+                                  onClick={() => setSelectedDaySessions({ date, sessions: daySessions })}
+                                  className="w-full text-left px-1.5 py-0.5 rounded text-[10px] transition-colors hover:opacity-80 flex items-center gap-1.5 group text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5"
+                                >
+                                  <Plus className="w-2.5 h-2.5 flex-shrink-0" />
+                                  <span className="text-[9px] whitespace-nowrap">Show Sessions ({daySessions.length})</span>
+                                </button>
+                              )}
+                            </>
+                          ) : null}
                         </div>
                       </div>
                     )

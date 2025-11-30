@@ -854,26 +854,54 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           })
         } else {
           // JSON response (shouldn't happen, but handle it)
-          const data = await response.json()
-          setExportMessage({ 
-            type: 'success', 
-            text: `Successfully exported ${data.summaries?.length || 0} summary(ies)` 
-          })
+          try {
+            const data = await response.json()
+            setExportMessage({ 
+              type: 'success', 
+              text: `Successfully exported ${data.summaries?.length || 0} summary(ies)` 
+            })
+          } catch (jsonError) {
+            // Response is not JSON, might be HTML error page
+            const text = await response.text()
+            console.error('[AI Insights] Non-JSON response:', text.substring(0, 200))
+            setExportMessage({ 
+              type: 'error', 
+              text: `Server error (${response.status}): Received non-PDF, non-JSON response` 
+            })
+          }
         }
         // Clear message after 5 seconds
         setTimeout(() => setExportMessage(null), 5000)
       } else {
-        const errorData = await response.json()
+        // Handle error response - check content type first
+        const contentType = response.headers.get('content-type')
+        let errorMessage = `Failed to export summary (${response.status})`
+        
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorMessage
+          } else {
+            // Response might be HTML error page
+            const text = await response.text()
+            console.error('[AI Insights] Error response (non-JSON):', text.substring(0, 200))
+            errorMessage = `Server error (${response.status}): ${response.statusText}`
+          }
+        } catch (parseError) {
+          console.error('[AI Insights] Error parsing error response:', parseError)
+          errorMessage = `Server error (${response.status}): ${response.statusText}`
+        }
+        
         setExportMessage({ 
           type: 'error', 
-          text: errorData.error || 'Failed to export summary' 
+          text: errorMessage
         })
       }
     } catch (error: any) {
       console.error('[AI Insights] Error exporting summary:', error)
       setExportMessage({ 
         type: 'error', 
-        text: error.message || 'Failed to export summary' 
+        text: error.message || 'Failed to export summary. Please try again.' 
       })
     } finally {
       setIsExporting(false)
