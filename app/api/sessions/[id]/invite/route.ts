@@ -258,9 +258,35 @@ This invitation was sent by ${coachName} via JAK Labs.
           const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@api.jak-labs.com';
 
           // Generate calendar invite for the session
+          // Parse the ISO string to get a proper Date object
           const sessionStartDate = new Date(dbSession.session_date_time);
-          const sessionEndDate = new Date(sessionStartDate);
-          sessionEndDate.setMinutes(sessionEndDate.getMinutes() + dbSession.duration);
+          
+          // Validate the start date
+          if (isNaN(sessionStartDate.getTime())) {
+            console.error('[API] Invalid session date/time for session:', sessionId, 'date:', dbSession.session_date_time);
+            throw new Error('Invalid session date/time');
+          }
+          
+          // Ensure duration is a number and add it correctly
+          const durationMinutes = parseInt(String(dbSession.duration), 10);
+          if (isNaN(durationMinutes) || durationMinutes <= 0) {
+            console.error('[API] Invalid duration for session:', dbSession.session_id, 'duration:', dbSession.duration, 'type:', typeof dbSession.duration);
+            throw new Error('Invalid session duration');
+          }
+          
+          // Calculate end date by adding duration in milliseconds (more reliable than setMinutes)
+          const sessionEndDate = new Date(sessionStartDate.getTime() + (durationMinutes * 60 * 1000));
+          
+          console.log('[API] Calendar invite times for invite:', {
+            sessionId: sessionId,
+            start: sessionStartDate.toISOString(),
+            end: sessionEndDate.toISOString(),
+            duration: durationMinutes,
+            calculatedDuration: (sessionEndDate.getTime() - sessionStartDate.getTime()) / (1000 * 60) + ' minutes',
+            startLocal: sessionStartDate.toLocaleString(),
+            endLocal: sessionEndDate.toLocaleString(),
+            rawDuration: dbSession.duration
+          });
 
           const calendarEvent = generateICS({
             summary: dbSession.title,

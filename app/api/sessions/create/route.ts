@@ -254,9 +254,33 @@ This session is scheduled for ${formattedDate} at ${formattedTime}. You can acce
           const fromEmail = process.env.SES_FROM_EMAIL || 'noreply@api.jak-labs.com';
 
           // Generate calendar invite for the session
+          // Parse the ISO string to get a proper Date object
           const sessionStartDate = new Date(sessionDateTime);
-          const sessionEndDate = new Date(sessionStartDate);
-          sessionEndDate.setMinutes(sessionEndDate.getMinutes() + duration);
+          
+          // Validate the start date
+          if (isNaN(sessionStartDate.getTime())) {
+            console.error('[API] Invalid session date/time:', sessionDateTime);
+            throw new Error('Invalid session date/time');
+          }
+          
+          // Ensure duration is a number and add it correctly
+          const durationMinutes = parseInt(String(duration), 10);
+          if (isNaN(durationMinutes) || durationMinutes <= 0) {
+            console.error('[API] Invalid duration:', duration);
+            throw new Error('Invalid session duration');
+          }
+          
+          // Calculate end date by adding duration in milliseconds
+          const sessionEndDate = new Date(sessionStartDate.getTime() + (durationMinutes * 60 * 1000));
+          
+          console.log('[API] Calendar invite times:', {
+            start: sessionStartDate.toISOString(),
+            end: sessionEndDate.toISOString(),
+            duration: durationMinutes,
+            calculatedDuration: (sessionEndDate.getTime() - sessionStartDate.getTime()) / (1000 * 60) + ' minutes',
+            startLocal: sessionStartDate.toLocaleString(),
+            endLocal: sessionEndDate.toLocaleString()
+          });
 
           const calendarEvent = generateICS({
             summary: title,
