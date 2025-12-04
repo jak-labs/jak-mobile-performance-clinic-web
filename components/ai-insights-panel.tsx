@@ -8,6 +8,7 @@ import { useRoomContext, useTracks } from "@livekit/components-react"
 import { DataPacket_Kind, Track, ConnectionState } from "livekit-client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
 interface AIInsight {
   participantId: string
@@ -43,10 +44,32 @@ interface AIInsightsPanelProps {
   sessionType?: string | null // "single", "group", or "mocap"
 }
 
+interface AIMetric {
+  subject_id: string // Partition key
+  timestamp: string // Sort key
+  session_id: string
+  participant_id: string
+  participant_name: string
+  balance_score: number
+  symmetry_score: number
+  postural_efficiency?: number
+  risk_level?: string
+  posture_metrics?: {
+    spine_lean?: string
+    neck_flexion?: string
+    shoulder_alignment?: string
+    pelvic_sway?: string
+    additional_metrics?: string[]
+  }
+}
+
 export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId, sessionType }: AIInsightsPanelProps) {
   const room = useRoomContext()
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true })
-  const [insights, setInsights] = useState<AIInsight[]>([])
+  const [insights, setInsights] = useState<AIInsight[]>([]) // Generated insights (single per participant) - only shown after clicking "Generate Session Insights"
+  const [metrics, setMetrics] = useState<AIMetric[]>([]) // Real-time metrics
+  const [latestMetrics, setLatestMetrics] = useState<Record<string, AIMetric>>({}) // Latest metric per participant
+  const [showInsights, setShowInsights] = useState(false) // Flag to control whether to show insights or metrics
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const frameCollectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const firstAnalysisTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -59,6 +82,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   const [subjectId, setSubjectId] = useState<string | null>(null) // Store subject_id for mocap sessions
   const [isLoadingInsights, setIsLoadingInsights] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
   const [exportMessage, setExportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const insightsLoadedRef = useRef(false)
 
@@ -168,6 +192,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   useEffect(() => {
     if (!sessionId) {
       setInsights([])
+      setShowInsights(false)
       return
     }
     
@@ -180,9 +205,39 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         if (cachedInsights && cachedInsights.length > 0) {
           console.log(`[AI Insights] Loading ${cachedInsights.length} cached insights from localStorage`)
           setInsights(cachedInsights)
+          
+          // Also load showInsights flag
+          try {
+            const flagKey = `ai-insights-show-flag-${sessionId}`
+            const flagStored = localStorage.getItem(flagKey)
+            if (flagStored) {
+              const flagData = JSON.parse(flagStored)
+              setShowInsights(flagData.showInsights === true)
+            } else {
+              // If insights exist but no flag, assume they should be shown
+              setShowInsights(true)
+            }
+          } catch (flagError) {
+            console.error('[AI Insights] Error loading showInsights flag:', flagError)
+            // If insights exist, show them anyway
+            setShowInsights(true)
+          }
+          
           // Don't set loading state - we have cached data to show
           return
         }
+      }
+      
+      // No cached insights - check if showInsights flag exists (shouldn't, but just in case)
+      try {
+        const flagKey = `ai-insights-show-flag-${sessionId}`
+        const flagStored = localStorage.getItem(flagKey)
+        if (flagStored) {
+          const flagData = JSON.parse(flagStored)
+          setShowInsights(flagData.showInsights === true)
+        }
+      } catch (flagError) {
+        // Ignore flag errors if no insights exist
       }
     } catch (error) {
       console.error('[AI Insights] Error loading from localStorage:', error)
@@ -190,6 +245,77 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     
     // Only show loading if we don't have cached data
     setIsLoadingInsights(true)
+  }, [sessionId])
+
+  // Load metrics from localStorage on mount
+  useEffect(() => {
+    if (!sessionId) return
+    
+    try {
+      const storageKey = `ai-metrics-${sessionId}`
+      const stored = localStorage.getItem(storageKey)
+      if (stored) {
+        const storedMetrics = JSON.parse(stored)
+        setMetrics(storedMetrics.metrics || [])
+        
+        // Update latest metrics per participant
+        const latest: Record<string, AIMetric> = {}
+        storedMetrics.metrics?.forEach((metric: AIMetric) => {
+          const pid = metric.participant_id
+          if (!latest[pid] || new Date(metric.timestamp) > new Date(latest[pid].timestamp)) {
+            latest[pid] = metric
+          }
+        })
+        setLatestMetrics(latest)
+        console.log(`[AI Insights] Loaded ${storedMetrics.metrics?.length || 0} metrics from localStorage`)
+      }
+    } catch (error) {
+      console.error('[AI Insights] Error loading metrics from localStorage:', error)
+    }
+  }, [sessionId])
+
+  // Fetch metrics periodically to display real-time data
+  useEffect(() => {
+    if (!sessionId) return
+
+    const fetchMetrics = async () => {
+      try {
+        const response = await fetch(`/api/ai-insights/metrics/${sessionId}`)
+        if (response.ok) {
+          const data = await response.json()
+          const fetchedMetrics = data.metrics || []
+          setMetrics(fetchedMetrics)
+          
+          // Update latest metrics per participant
+          const latest: Record<string, AIMetric> = {}
+          fetchedMetrics.forEach((metric: AIMetric) => {
+            const pid = metric.participant_id
+            if (!latest[pid] || new Date(metric.timestamp) > new Date(latest[pid].timestamp)) {
+              latest[pid] = metric
+            }
+          })
+          setLatestMetrics(latest)
+          
+          // Save to localStorage for instant display
+          try {
+            const storageKey = `ai-metrics-${sessionId}`
+            localStorage.setItem(storageKey, JSON.stringify({
+              metrics: fetchedMetrics,
+              lastUpdated: new Date().toISOString(),
+            }))
+          } catch (storageError) {
+            console.error('[AI Insights] Error saving metrics to localStorage:', storageError)
+          }
+        }
+      } catch (error) {
+        console.error('[AI Insights] Error fetching metrics:', error)
+      }
+    }
+
+    fetchMetrics()
+    const interval = setInterval(fetchMetrics, 5000) // Fetch every 5 seconds
+
+    return () => clearInterval(interval)
   }, [sessionId])
 
   // Fetch saved AI insights from database when sessionId is available
@@ -224,6 +350,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                 pelvicSway: dbInsight.posture_metrics.pelvic_sway,
                 additionalMetrics: dbInsight.posture_metrics.additional_metrics,
               } : undefined,
+              movementQuality: dbInsight.movement_quality,
+              movementPatterns: dbInsight.movement_patterns,
+              movementConsistency: dbInsight.movement_consistency,
+              dynamicStability: dbInsight.dynamic_stability,
               performanceInterpretation: dbInsight.performance_interpretation,
               performanceImpact: dbInsight.performance_impact,
               balanceScore: dbInsight.balance_score || 0,
@@ -519,6 +649,14 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           continue
         }
 
+        // Filter out coach - only analyze subjects/participants (not the coach)
+        const currentSessionOwnerId = sessionOwnerId
+        const currentSessionType = sessionType
+        if (currentSessionOwnerId && participantId === currentSessionOwnerId && currentSessionType !== 'mocap') {
+          console.log(`[AI Insights] Skipping coach (${participantId}) - only analyzing subjects`)
+          continue
+        }
+
         console.log(`[AI Insights] Analyzing ${frames.length} frames for participant: ${participantId} (will analyze even if less than 10 frames)`)
 
         // Use subject name from schedule if available, otherwise use participant name
@@ -529,13 +667,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         const displayName = currentSubjectName || currentParticipantInfo[participantId]?.fullName || participantId
         
         // For mocap sessions: coach is in session pointing camera at athlete
-        // Use subject_id as participantId so insights are attributed to the athlete, not the coach
+        // Use subject_id as participantId so metrics are attributed to the athlete, not the coach
         // For other sessions: use subject_id if available, otherwise use LiveKit participantId
         const isMocapSession = sessionType === 'mocap'
-        const insightParticipantId = (isMocapSession && currentSubjectId) ? currentSubjectId : (currentSubjectId || participantId)
+        const metricParticipantId = (isMocapSession && currentSubjectId) ? currentSubjectId : (currentSubjectId || participantId)
         
         if (isMocapSession) {
-          console.log(`[AI Insights] Mocap session: Analyzing coach's video feed (${participantId}) but attributing to subject (${insightParticipantId})`)
+          console.log(`[AI Insights] Mocap session: Analyzing coach's video feed (${participantId}) but attributing to subject (${metricParticipantId})`)
         }
 
         try {
@@ -559,94 +697,76 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
             if (data.analysis) {
               // Only publish data if room is connected
               if (room.state === ConnectionState.Connected && room.localParticipant) {
+                // Note: We don't publish insights via data channel anymore
+                // Insights are only generated on-demand when clicking "Generate Session Insights"
+              }
+
+              // Extract metrics from analysis (we don't create insights here - only metrics)
+              const currentSessionId = sessionIdRef.current
+              const newMetric: AIMetric = {
+                subject_id: metricParticipantId, // Partition key
+                timestamp: data.analysis.timestamp || new Date().toISOString(), // Sort key
+                session_id: currentSessionId || '',
+                participant_id: metricParticipantId, // Same as subject_id
+                participant_name: displayName,
+                balance_score: data.analysis.balanceScore || 0,
+                symmetry_score: data.analysis.symmetryScore || 0,
+                postural_efficiency: data.analysis.posturalEfficiency,
+                risk_level: data.analysis.riskLevel,
+                posture_metrics: data.analysis.postureMetrics ? {
+                  spine_lean: data.analysis.postureMetrics.spineLean,
+                  neck_flexion: data.analysis.postureMetrics.neckFlexion,
+                  shoulder_alignment: data.analysis.postureMetrics.shoulderAlignment,
+                  pelvic_sway: data.analysis.postureMetrics.pelvicSway,
+                  additional_metrics: data.analysis.postureMetrics.additionalMetrics,
+                } : undefined,
+              }
+              
+              // Update local metrics state immediately for instant display (even if DB save fails)
+              setMetrics((prev) => {
+                const updated = [...prev, newMetric]
+                // Save to localStorage for instant display on next load
                 try {
-                  // Send insight via data channel (for other participants to see)
-                  const message = JSON.stringify({
-                    type: 'ai-insight',
-                    participantId: insightParticipantId,
-                    participantName: displayName,
-                    ...data.analysis,
-                  })
-
-                  room.localParticipant.publishData(
-                    new TextEncoder().encode(message),
-                    { reliable: true }
-                  )
-                } catch (error) {
-                  console.error('Error publishing data:', error)
-                  // Continue to update local state even if publish fails
+                  const storageKey = `ai-metrics-${currentSessionId}`
+                  localStorage.setItem(storageKey, JSON.stringify({
+                    metrics: updated,
+                    lastUpdated: new Date().toISOString(),
+                  }))
+                } catch (storageError) {
+                  console.error('[AI Insights] Error saving metrics to localStorage:', storageError)
                 }
-              }
-
-              // Also update local state
-              const newInsight: AIInsight = {
-                participantId: insightParticipantId,
-                participantName: displayName,
-                postureMetrics: data.analysis.postureMetrics,
-                movementQuality: data.analysis.movementQuality,
-                movementPatterns: data.analysis.movementPatterns,
-                movementConsistency: data.analysis.movementConsistency,
-                dynamicStability: data.analysis.dynamicStability,
-                performanceInterpretation: data.analysis.performanceInterpretation,
-                performanceImpact: data.analysis.performanceImpact,
-                balanceScore: data.analysis.balanceScore || 0,
-                symmetryScore: data.analysis.symmetryScore || 0,
-                posturalEfficiency: data.analysis.posturalEfficiency,
-                riskLevel: data.analysis.riskLevel,
-                riskDescription: data.analysis.riskDescription,
-                targetedRecommendations: data.analysis.targetedRecommendations,
-                timestamp: data.analysis.timestamp,
-              }
-
-              setInsights((prev) => {
-                // Remove any existing insights for this participant (keep only latest)
-                // Also check if there are insights with different participantIds but same participantName
-                // This can happen if subject_id and LiveKit participantId are different
-                const filtered = prev.filter(
-                  (i) => i.participantId !== newInsight.participantId && 
-                        i.participantName !== newInsight.participantName
-                )
-                // Add new insight and keep last 50 total
-                const updated = [...filtered, newInsight].slice(-50)
-                console.log(`[AI Insights] Updated insights for ${insightParticipantId} (LiveKit: ${participantId}) at ${new Date().toISOString()}. Total insights: ${updated.length}`)
-                // Save to localStorage whenever insights are updated (use ref to get latest function)
-                saveInsightsToStorageRef.current(updated)
                 return updated
               })
-
-              // Save insight to database
-              const currentSessionId = sessionIdRef.current
+              
+              setLatestMetrics((prev) => ({
+                ...prev,
+                [metricParticipantId]: newMetric,
+              }))
+              
+              // Save METRIC to database (not full insight - just metrics)
+              // This is done asynchronously - metrics are already displayed locally
               if (currentSessionId) {
                 try {
-                  console.log(`[AI Insights] Attempting to save insight for sessionId: ${currentSessionId}, participantId: ${insightParticipantId} (LiveKit: ${participantId})`)
-                  const saveResponse = await fetch('/api/ai-insights/save', {
+                  console.log(`[AI Insights] Attempting to save metric for sessionId: ${currentSessionId}, participantId: ${metricParticipantId} (LiveKit: ${participantId})`)
+                  const saveResponse = await fetch('/api/ai-insights/save-metric', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       sessionId: currentSessionId,
-                      participantId: insightParticipantId,
+                      participantId: metricParticipantId,
                       participantName: displayName,
-                      exerciseName: newInsight.exerciseName,
-                      postureMetrics: newInsight.postureMetrics,
-                      performanceInterpretation: newInsight.performanceInterpretation,
-                      performanceImpact: newInsight.performanceImpact,
-                      balanceScore: newInsight.balanceScore,
-                      symmetryScore: newInsight.symmetryScore,
-                      posturalEfficiency: newInsight.posturalEfficiency,
-                      movementQuality: newInsight.movementQuality,
-                      movementPatterns: newInsight.movementPatterns,
-                      movementConsistency: newInsight.movementConsistency,
-                      dynamicStability: newInsight.dynamicStability,
-                      riskLevel: newInsight.riskLevel,
-                      riskDescription: newInsight.riskDescription,
-                      targetedRecommendations: newInsight.targetedRecommendations,
-                      timestamp: newInsight.timestamp,
+                      balanceScore: data.analysis.balanceScore || 0,
+                      symmetryScore: data.analysis.symmetryScore || 0,
+                      posturalEfficiency: data.analysis.posturalEfficiency,
+                      riskLevel: data.analysis.riskLevel,
+                      postureMetrics: data.analysis.postureMetrics,
+                      timestamp: data.analysis.timestamp || new Date().toISOString(),
                     }),
                   })
                   
                   if (saveResponse.ok) {
                     const saveData = await saveResponse.json()
-                    console.log(`[AI Insights] Successfully saved insight to database for ${insightParticipantId}`, saveData)
+                    console.log(`[AI Insights] Successfully saved metric to database for ${metricParticipantId}`, saveData)
                   } else {
                     // Try to parse error response
                     let errorData: any = {}
@@ -662,8 +782,17 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                       
                       if (contentType && contentType.includes('application/json')) {
                         try {
-                          errorData = await responseClone.json()
-                          console.error(`[AI Insights] Error response (JSON):`, errorData)
+                          const jsonData = await responseClone.json()
+                          errorData = jsonData
+                          console.error(`[AI Insights] Error response (JSON):`, jsonData)
+                          
+                          // Log the actual error message if available
+                          if (jsonData.error) {
+                            console.error(`[AI Insights] Error message: ${jsonData.error}`)
+                            if (jsonData.code) {
+                              console.error(`[AI Insights] Error code: ${jsonData.code}`)
+                            }
+                          }
                         } catch (jsonError) {
                           console.error(`[AI Insights] Failed to parse JSON error response:`, jsonError)
                           // Try to get text instead
@@ -673,6 +802,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                             rawText: text,
                             jsonParseError: jsonError instanceof Error ? jsonError.message : String(jsonError)
                           }
+                          console.error(`[AI Insights] Error response (text):`, text || '(empty)')
                         }
                       } else {
                         const text = await responseClone.text()
@@ -691,17 +821,25 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                       }
                     }
                     
-                    console.error(`[AI Insights] Failed to save insight for ${insightParticipantId}:`, {
+                    // Log comprehensive error information
+                    const errorMessage = errorData.error || errorData.message || `HTTP ${status} ${statusText}`
+                    console.error(`[AI Insights] Failed to save metric for ${metricParticipantId}:`, {
                       status,
                       statusText,
                       contentType,
-                      error: errorData,
+                      errorMessage,
+                      errorDetails: errorData,
                       requestData: {
                         sessionId: currentSessionId,
-                        participantId: insightParticipantId,
+                        participantId: metricParticipantId,
                         participantName: displayName
                       }
                     })
+                    
+                    // If it's a table not found error, log a helpful message
+                    if (errorMessage.includes('does not exist') || errorData.code === 'ResourceNotFoundException') {
+                      console.warn(`[AI Insights] DynamoDB table "jak-coach-session-ai-metrics" does not exist. Metrics are still being displayed locally and saved to localStorage. Please create the table to enable database persistence.`)
+                    }
                   }
                 } catch (saveError) {
                   console.error(`[AI Insights] Error saving insight to database:`, saveError)
@@ -817,6 +955,97 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   // Get non-coach participant count
   const nonCoachParticipantCount = Object.keys(insightsByParticipant).length
 
+  const handleGenerateInsights = async () => {
+    if (!sessionId) {
+      setExportMessage({ type: 'error', text: 'Session ID is required' })
+      return
+    }
+
+    setIsGenerating(true)
+    setExportMessage(null)
+
+    try {
+      const response = await fetch('/api/ai-insights/generate-from-metrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        
+        // Convert generated insights to component format
+        const generatedInsights: AIInsight[] = data.insights.map((item: any) => ({
+          participantId: item.participantId,
+          participantName: item.participantName,
+          movementQuality: item.insight.movementQuality,
+          movementPatterns: item.insight.movementPatterns,
+          movementConsistency: item.insight.movementConsistency,
+          dynamicStability: item.insight.dynamicStability,
+          performanceInterpretation: item.insight.performanceInterpretation,
+          performanceImpact: item.insight.performanceImpact,
+          balanceScore: item.insight.balanceScore,
+          symmetryScore: item.insight.symmetryScore,
+          posturalEfficiency: item.insight.posturalEfficiency,
+          riskLevel: item.insight.riskLevel,
+          riskDescription: item.insight.riskDescription,
+          targetedRecommendations: item.insight.targetedRecommendations,
+          timestamp: new Date().toISOString(),
+        }))
+
+        setInsights(generatedInsights)
+        setShowInsights(true) // Show insights after generation
+        
+        // Save insights to localStorage for persistence across tab switches
+        saveInsightsToStorage(generatedInsights)
+        
+        // Also save showInsights flag to localStorage
+        try {
+          const storageKey = `ai-insights-show-flag-${sessionId}`
+          localStorage.setItem(storageKey, JSON.stringify({ showInsights: true }))
+        } catch (error) {
+          console.error('[AI Insights] Error saving showInsights flag to localStorage:', error)
+        }
+        
+        setExportMessage({ 
+          type: 'success', 
+          text: `Successfully generated ${generatedInsights.length} insight(s)` 
+        })
+        setTimeout(() => setExportMessage(null), 5000)
+      } else {
+        const contentType = response.headers.get('content-type')
+        let errorMessage = `Failed to generate insights (${response.status})`
+        
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorMessage
+          } else {
+            const text = await response.text()
+            console.error('[AI Insights] Error response (non-JSON):', text.substring(0, 200))
+            errorMessage = `Server error (${response.status}): ${response.statusText}`
+          }
+        } catch (parseError) {
+          console.error('[AI Insights] Error parsing error response:', parseError)
+          errorMessage = `Server error (${response.status}): ${response.statusText}`
+        }
+        
+        setExportMessage({ 
+          type: 'error', 
+          text: errorMessage
+        })
+      }
+    } catch (error: any) {
+      console.error('[AI Insights] Error generating insights:', error)
+      setExportMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to generate insights. Please try again.' 
+      })
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
   const handleExportSummary = async () => {
     if (!sessionId) {
       setExportMessage({ type: 'error', text: 'Session ID is required' })
@@ -827,6 +1056,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     setExportMessage(null)
 
     try {
+      // Step 1: Generate and save summary to DB (fast, no PDF generation)
       const response = await fetch('/api/ai-insights/export-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -834,41 +1064,71 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       })
 
       if (response.ok) {
-        // Check if response is PDF
-        const contentType = response.headers.get('content-type')
-        if (contentType && contentType.includes('application/pdf')) {
-          // Download PDF
-          const blob = await response.blob()
-          const url = window.URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `ai-insights-summary-${sessionId}-${Date.now()}.pdf`
-          document.body.appendChild(a)
-          a.click()
-          window.URL.revokeObjectURL(url)
-          document.body.removeChild(a)
-          
-          setExportMessage({ 
-            type: 'success', 
-            text: 'Summary regenerated and PDF downloaded successfully' 
+        const data = await response.json()
+        setExportMessage({ 
+          type: 'success', 
+          text: `Summary generated successfully. Downloading PDF...` 
+        })
+
+        // Step 2: Download PDF (generated on-demand)
+        try {
+          const pdfResponse = await fetch(`/api/ai-insights/download-pdf/${sessionId}`, {
+            method: 'GET',
           })
-        } else {
-          // JSON response (shouldn't happen, but handle it)
-          try {
-            const data = await response.json()
-            setExportMessage({ 
-              type: 'success', 
-              text: `Successfully exported ${data.summaries?.length || 0} summary(ies)` 
-            })
-          } catch (jsonError) {
-            // Response is not JSON, might be HTML error page
-            const text = await response.text()
-            console.error('[AI Insights] Non-JSON response:', text.substring(0, 200))
+
+          if (pdfResponse.ok) {
+            const contentType = pdfResponse.headers.get('content-type')
+            if (contentType && contentType.includes('application/pdf')) {
+              // Download PDF
+              const blob = await pdfResponse.blob()
+              const url = window.URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `ai-insights-summary-${sessionId}-${Date.now()}.pdf`
+              document.body.appendChild(a)
+              a.click()
+              window.URL.revokeObjectURL(url)
+              document.body.removeChild(a)
+              
+              setExportMessage({ 
+                type: 'success', 
+                text: 'Summary generated and PDF downloaded successfully' 
+              })
+            } else {
+              setExportMessage({ 
+                type: 'error', 
+                text: 'Failed to download PDF - invalid response format' 
+              })
+            }
+          } else {
+            const contentType = pdfResponse.headers.get('content-type')
+            let errorMessage = `Failed to download PDF (${pdfResponse.status})`
+            
+            try {
+              if (contentType && contentType.includes('application/json')) {
+                const errorData = await pdfResponse.json()
+                errorMessage = errorData.error || errorMessage
+              } else {
+                const text = await pdfResponse.text()
+                console.error('[AI Insights] PDF download error response (non-JSON):', text.substring(0, 200))
+                errorMessage = `Server error (${pdfResponse.status}): ${pdfResponse.statusText}`
+              }
+            } catch (parseError) {
+              console.error('[AI Insights] Error parsing PDF download error response:', parseError)
+              errorMessage = `Server error (${pdfResponse.status}): ${pdfResponse.statusText}`
+            }
+            
             setExportMessage({ 
               type: 'error', 
-              text: `Server error (${response.status}): Received non-PDF, non-JSON response` 
+              text: errorMessage
             })
           }
+        } catch (pdfError: any) {
+          console.error('[AI Insights] Error downloading PDF:', pdfError)
+          setExportMessage({ 
+            type: 'error', 
+            text: `Summary generated but PDF download failed: ${pdfError.message || 'Unknown error'}` 
+          })
         }
         // Clear message after 5 seconds
         setTimeout(() => setExportMessage(null), 5000)
@@ -910,283 +1170,494 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <div className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide min-w-0">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4 mb-4">
-          <h3 className="font-semibold text-sm whitespace-nowrap">AI Movement Analysis</h3>
-          <Button
-            onClick={handleExportSummary}
-            disabled={isExporting || !sessionId || insights.length === 0}
-            size="sm"
-            variant="outline"
-            className="flex items-center gap-2 w-full sm:w-auto min-w-0 shrink-0"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                <span className="truncate">Exporting...</span>
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 shrink-0" />
-                <span className="truncate">Export Session Summary</span>
-              </>
-            )}
-          </Button>
-        </div>
-
-        {exportMessage && (
-          <Alert variant={exportMessage.type === 'error' ? 'destructive' : 'default'}>
-            <AlertDescription>{exportMessage.text}</AlertDescription>
-          </Alert>
-        )}
-      
       {/* Hidden canvas for frame capture */}
       <canvas ref={canvasRef} className="hidden" />
+      
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <div className="p-4 pb-2 flex-shrink-0">
+          <h3 className="font-semibold text-sm whitespace-nowrap mb-4">AI Movement Analysis</h3>
+          
+          {exportMessage && (
+            <Alert variant={exportMessage.type === 'error' ? 'destructive' : 'default'} className="mb-4">
+              <AlertDescription>{exportMessage.text}</AlertDescription>
+            </Alert>
+          )}
+          
+          <Tabs defaultValue="metrics" className="w-full flex-1 flex flex-col overflow-hidden">
+            <TabsList className="grid w-full grid-cols-2 relative flex-shrink-0">
+              <TabsTrigger value="metrics">Real-time Metrics</TabsTrigger>
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-px bg-border" />
+              <TabsTrigger value="insights">AI Insights</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="metrics" className="mt-4 flex-1 overflow-y-auto scrollbar-hide min-w-0">
+              <div className="space-y-4">
+              {isLoadingInsights ? (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50 animate-pulse" />
+                  <p>Loading metrics...</p>
+                </div>
+              ) : (() => {
+                // Show metrics
+                if (Object.keys(latestMetrics).length > 0) {
+                  const metricsByParticipant = Object.entries(latestMetrics).reduce((acc, [pid, metric]) => {
+                    // Filter out coach if needed
+                    if (sessionOwnerId && pid === sessionOwnerId && sessionType !== 'mocap') {
+                      return acc
+                    }
+                    if (!acc[pid]) {
+                      acc[pid] = []
+                    }
+                    acc[pid].push(metric)
+                    return acc
+                  }, {} as Record<string, AIMetric[]>)
 
-      {isLoadingInsights ? (
-        <div className="text-sm text-muted-foreground text-center py-8">
-          <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50 animate-pulse" />
-          <p>Loading AI insights...</p>
-        </div>
-      ) : nonCoachParticipantCount === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-8">
-          <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p>AI insights will appear here as participants move</p>
-          <p className="text-xs mt-2">Movement analysis runs every 30 seconds (10 frames over 30s)</p>
-        </div>
-      ) : (() => {
-        // Helper functions
-        const getRiskColor = (riskLevel?: string) => {
-          if (!riskLevel) return 'bg-gray-500'
-          const level = riskLevel.toLowerCase()
-          if (level === 'high') return 'bg-red-500'
-          if (level === 'moderate') return 'bg-yellow-500'
-          return 'bg-green-500'
-        }
+                  const participantEntries = Object.entries(metricsByParticipant)
+                  
+                  if (participantEntries.length === 0) {
+                    return (
+                      <div className="text-sm text-muted-foreground text-center py-8">
+                        <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>Metrics will appear here as participants move</p>
+                        <p className="text-xs mt-2">Metrics are collected every 30 seconds</p>
+                      </div>
+                    )
+                  }
 
-        const getRiskEmoji = (riskLevel?: string) => {
-          if (!riskLevel) return '⚪'
-          const level = riskLevel.toLowerCase()
-          if (level === 'high') return '🔴'
-          if (level === 'moderate') return '🟡'
-          return '🟢'
-        }
+                  // Render metrics display
+                  const renderMetricsCard = (participantId: string, participantMetrics: AIMetric[]) => {
+                    const latestMetric = participantMetrics[participantMetrics.length - 1]
+                    const participantName = latestMetric.participant_name
 
-        // Function to render a single insight card
-        const renderInsightCard = (participantId: string, participantInsights: AIInsight[]) => {
-          const latestInsight = participantInsights[participantInsights.length - 1]
-          const participantName = latestInsight.participantName
+                    return (
+                      <Card className="p-5 min-w-0 bg-card border-border">
+                        <div className="space-y-5 min-w-0">
+                          <div className="flex items-center gap-2 mb-3 min-w-0">
+                            <h4 className="font-bold text-lg text-foreground truncate min-w-0">Real-time Metrics – {participantName}</h4>
+                          </div>
 
-          return (
-            <div className="space-y-4 min-w-0">
-              {latestInsight.exerciseName && (
-                <h5 className="font-medium text-sm text-muted-foreground">
-                  {latestInsight.exerciseName}
-                </h5>
-              )}
+                          {/* Scores */}
+                          <div className="space-y-3">
+                            <h5 className="font-bold text-base text-foreground">Scores</h5>
+                            <div className="flex flex-wrap gap-6">
+                              <div className="flex flex-col">
+                                <span className="text-sm text-muted-foreground mb-1">Balance Score</span>
+                                <span className="text-2xl font-bold text-foreground">{latestMetric.balance_score}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-sm text-muted-foreground mb-1">Symmetry</span>
+                                <span className="text-2xl font-bold text-foreground">{latestMetric.symmetry_score}</span>
+                              </div>
+                              {latestMetric.postural_efficiency && (
+                                <div className="flex flex-col">
+                                  <span className="text-sm text-muted-foreground mb-1">Postural Efficiency</span>
+                                  <span className="text-2xl font-bold text-foreground">{latestMetric.postural_efficiency}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
 
-              {/* Movement Quality & Patterns */}
-              {(latestInsight.movementQuality || (latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0)) && (
-                <div className="space-y-2">
-                  <h5 className="font-semibold text-sm">Movement Analysis</h5>
-                  {latestInsight.movementQuality && (
-                    <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
-                      <span className="font-medium">Movement Quality:</span> {latestInsight.movementQuality}
-                    </p>
-                  )}
-                  {latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0 && (
-                    <div className="space-y-1 min-w-0">
-                      <p className="text-sm font-medium text-muted-foreground">Movement Patterns:</p>
-                      <ul className="space-y-1 text-sm text-muted-foreground">
-                        {latestInsight.movementPatterns.map((pattern, idx) => (
-                          <li key={idx} className="flex items-start gap-2 min-w-0">
-                            <span className="text-primary mt-0.5 shrink-0">•</span>
-                            <span className="break-words overflow-wrap-anywhere">{pattern}</span>
-                          </li>
-                        ))}
-                      </ul>
+                          {/* Risk Level */}
+                          {latestMetric.risk_level && (
+                            <div className="space-y-2 min-w-0">
+                              <h5 className="font-bold text-base text-foreground">Risk Level</h5>
+                              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                <span className={`px-3 py-1.5 rounded-md text-sm font-bold text-white shrink-0 ${
+                                  latestMetric.risk_level.toLowerCase() === 'high' ? 'bg-red-500' :
+                                  latestMetric.risk_level.toLowerCase() === 'moderate' ? 'bg-yellow-500' :
+                                  'bg-green-500'
+                                }`}>
+                                  {latestMetric.risk_level}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Posture Metrics */}
+                          {latestMetric.posture_metrics && (
+                            <div className="space-y-3 min-w-0">
+                              <h5 className="font-bold text-base text-foreground">Posture Metrics</h5>
+                              <div className="space-y-2.5 text-base">
+                                {latestMetric.posture_metrics.spine_lean && (
+                                  <p className="break-words overflow-wrap-anywhere text-foreground">
+                                    <span className="font-semibold text-foreground">Spine Lean:</span> <span className="text-muted-foreground">{latestMetric.posture_metrics.spine_lean}</span>
+                                  </p>
+                                )}
+                                {latestMetric.posture_metrics.neck_flexion && (
+                                  <p className="break-words overflow-wrap-anywhere text-foreground">
+                                    <span className="font-semibold text-foreground">Neck Flexion:</span> <span className="text-muted-foreground">{latestMetric.posture_metrics.neck_flexion}</span>
+                                  </p>
+                                )}
+                                {latestMetric.posture_metrics.shoulder_alignment && (
+                                  <p className="break-words overflow-wrap-anywhere text-foreground">
+                                    <span className="font-semibold text-foreground">Shoulder Alignment:</span> <span className="text-muted-foreground">{latestMetric.posture_metrics.shoulder_alignment}</span>
+                                  </p>
+                                )}
+                                {latestMetric.posture_metrics.pelvic_sway && (
+                                  <p className="break-words overflow-wrap-anywhere text-foreground">
+                                    <span className="font-semibold text-foreground">Pelvic Sway:</span> <span className="text-muted-foreground">{latestMetric.posture_metrics.pelvic_sway}</span>
+                                  </p>
+                                )}
+                                {latestMetric.posture_metrics.additional_metrics?.map((metric, idx) => (
+                                  <p key={idx} className="break-words overflow-wrap-anywhere text-foreground">{metric}</p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <p className="text-sm text-muted-foreground pt-2 border-t border-border">
+                            Last updated: <span className="font-medium text-foreground">{new Date(latestMetric.timestamp).toLocaleTimeString()}</span>
+                          </p>
+                        </div>
+                      </Card>
+                    )
+                  }
+
+                  // Single participant
+                  if (participantEntries.length === 1) {
+                    const [participantId, participantMetrics] = participantEntries[0]
+                    return (
+                      <div className="space-y-4">
+                        {renderMetricsCard(participantId, participantMetrics)}
+                      </div>
+                    )
+                  }
+
+                  // Multiple participants - use accordion
+                  return (
+                    <Accordion type="single" collapsible className="w-full">
+                      {participantEntries.map(([participantId, participantMetrics]) => {
+                        const latestMetric = participantMetrics[participantMetrics.length - 1]
+                        const participantName = latestMetric.participant_name
+                        
+                        return (
+                          <AccordionItem key={participantId} value={participantId} className="border-border">
+                            <AccordionTrigger className="hover:no-underline">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{participantName}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  (Balance: {latestMetric.balance_score}, Symmetry: {latestMetric.symmetry_score})
+                                </span>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              {renderMetricsCard(participantId, participantMetrics)}
+                            </AccordionContent>
+                          </AccordionItem>
+                        )
+                      })}
+                    </Accordion>
+                  )
+                } else {
+                  // No metrics
+                  return (
+                    <div className="text-sm text-muted-foreground text-center py-8">
+                      <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>Metrics will appear here as participants move</p>
+                      <p className="text-xs mt-2">Metrics are collected every 30 seconds</p>
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                }
+              })()}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="insights" className="mt-4 flex-1 overflow-y-auto scrollbar-hide min-w-0">
+              <div className="space-y-4">
+              {(() => {
+                // Helper functions for insight display
+                const getRiskColor = (riskLevel?: string) => {
+                  if (!riskLevel) return 'bg-gray-500'
+                  const level = riskLevel.toLowerCase()
+                  if (level === 'high') return 'bg-red-500'
+                  if (level === 'moderate') return 'bg-yellow-500'
+                  return 'bg-green-500'
+                }
 
-              {/* Posture Metrics */}
-              {latestInsight.postureMetrics && Object.keys(latestInsight.postureMetrics).length > 0 && (
-                <div className="space-y-2">
-                  <h5 className="font-semibold text-sm">Posture Metrics</h5>
-                  <div className="space-y-1 text-sm min-w-0">
-                    {latestInsight.postureMetrics.spineLean && (
-                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                        <span className="font-medium">Spine Lean:</span> {latestInsight.postureMetrics.spineLean}
-                      </p>
-                    )}
-                    {latestInsight.postureMetrics.neckFlexion && (
-                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                        <span className="font-medium">Neck Flexion:</span> {latestInsight.postureMetrics.neckFlexion}
-                      </p>
-                    )}
-                    {latestInsight.postureMetrics.shoulderAlignment && (
-                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                        <span className="font-medium">Shoulder Alignment:</span> {latestInsight.postureMetrics.shoulderAlignment}
-                      </p>
-                    )}
-                    {latestInsight.postureMetrics.pelvicSway && (
-                      <p className="text-muted-foreground break-words overflow-wrap-anywhere">
-                        <span className="font-medium">Pelvic Sway:</span> {latestInsight.postureMetrics.pelvicSway}
-                      </p>
-                    )}
-                    {latestInsight.postureMetrics.additionalMetrics?.map((metric, idx) => (
-                      <p key={idx} className="text-muted-foreground break-words overflow-wrap-anywhere">{metric}</p>
-                    ))}
-                  </div>
-                </div>
-              )}
+                const getRiskEmoji = (riskLevel?: string) => {
+                  if (!riskLevel) return '⚪'
+                  const level = riskLevel.toLowerCase()
+                  if (level === 'high') return '🔴'
+                  if (level === 'moderate') return '🟡'
+                  return '🟢'
+                }
 
-              {/* Performance Interpretation */}
-              {latestInsight.performanceInterpretation && (
-                <div className="space-y-2 min-w-0">
-                  <h5 className="font-semibold text-sm">Performance Interpretation</h5>
-                  <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
-                    {latestInsight.performanceInterpretation}
-                  </p>
-                </div>
-              )}
+                // Function to render a single insight card
+                const renderInsightCard = (participantId: string, participantInsights: AIInsight[]) => {
+                  const latestInsight = participantInsights[participantInsights.length - 1]
+                  const participantName = latestInsight.participantName
 
-              {/* Performance Impact */}
-              {latestInsight.performanceImpact && latestInsight.performanceImpact.length > 0 && (
-                <div className="space-y-2 min-w-0">
-                  <h5 className="font-semibold text-sm">Performance Impact</h5>
-                  <ul className="space-y-1 text-sm text-muted-foreground">
-                    {latestInsight.performanceImpact.map((impact, idx) => (
-                      <li key={idx} className="flex items-start gap-2 min-w-0">
-                        <span className="text-destructive mt-0.5 shrink-0">•</span>
-                        <span className="break-words overflow-wrap-anywhere">{impact}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                  return (
+                    <div className="space-y-4 min-w-0">
+                      {/* Movement Quality & Patterns */}
+                      {(latestInsight.movementQuality || (latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0)) && (
+                        <div className="space-y-2">
+                          <h5 className="font-semibold text-sm">Movement Analysis</h5>
+                          {latestInsight.movementQuality && (
+                            <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
+                              <span className="font-medium">Movement Quality:</span> {latestInsight.movementQuality}
+                            </p>
+                          )}
+                          {latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0 && (
+                            <div className="space-y-1 min-w-0">
+                              <p className="text-sm font-medium text-muted-foreground">Movement Patterns:</p>
+                              <ul className="space-y-1 text-sm text-muted-foreground">
+                                {latestInsight.movementPatterns.map((pattern, idx) => (
+                                  <li key={idx} className="flex items-start gap-2 min-w-0">
+                                    <span className="text-primary mt-0.5 shrink-0">•</span>
+                                    <span className="break-words overflow-wrap-anywhere">{pattern}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-              {/* Scores */}
-              {(latestInsight.balanceScore > 0 || latestInsight.symmetryScore > 0 || latestInsight.posturalEfficiency || latestInsight.movementConsistency || latestInsight.dynamicStability) && (
-                <div className="space-y-2">
-                  <h5 className="font-semibold text-sm">Scores</h5>
-                  <div className="flex flex-wrap gap-4 text-sm">
-                    {latestInsight.balanceScore > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Balance Score: </span>
-                        <span className="font-semibold">{latestInsight.balanceScore}</span>
-                      </div>
-                    )}
-                    {latestInsight.symmetryScore > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Symmetry: </span>
-                        <span className="font-semibold">{latestInsight.symmetryScore}</span>
-                      </div>
-                    )}
-                    {latestInsight.posturalEfficiency && (
-                      <div>
-                        <span className="text-muted-foreground">Postural Efficiency: </span>
-                        <span className="font-semibold">{latestInsight.posturalEfficiency}</span>
-                      </div>
-                    )}
-                    {latestInsight.movementConsistency !== undefined && (
-                      <div>
-                        <span className="text-muted-foreground">Movement Consistency: </span>
-                        <span className="font-semibold">{latestInsight.movementConsistency}</span>
-                      </div>
-                    )}
-                    {latestInsight.dynamicStability !== undefined && (
-                      <div>
-                        <span className="text-muted-foreground">Dynamic Stability: </span>
-                        <span className="font-semibold">{latestInsight.dynamicStability}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+                      {/* Posture Metrics */}
+                      {latestInsight.postureMetrics && (
+                        <div className="space-y-2 min-w-0">
+                          <h5 className="font-semibold text-sm">Posture Metrics</h5>
+                          <div className="space-y-1 text-sm text-muted-foreground">
+                            {latestInsight.postureMetrics.spineLean && (
+                              <p className="break-words overflow-wrap-anywhere">
+                                <span className="font-medium">Spine Lean:</span> {latestInsight.postureMetrics.spineLean}
+                              </p>
+                            )}
+                            {latestInsight.postureMetrics.neckFlexion && (
+                              <p className="break-words overflow-wrap-anywhere">
+                                <span className="font-medium">Neck Flexion:</span> {latestInsight.postureMetrics.neckFlexion}
+                              </p>
+                            )}
+                            {latestInsight.postureMetrics.shoulderAlignment && (
+                              <p className="break-words overflow-wrap-anywhere">
+                                <span className="font-medium">Shoulder Alignment:</span> {latestInsight.postureMetrics.shoulderAlignment}
+                              </p>
+                            )}
+                            {latestInsight.postureMetrics.pelvicSway && (
+                              <p className="break-words overflow-wrap-anywhere">
+                                <span className="font-medium">Pelvic Sway:</span> {latestInsight.postureMetrics.pelvicSway}
+                              </p>
+                            )}
+                            {latestInsight.postureMetrics.additionalMetrics?.map((metric, idx) => (
+                              <p key={idx} className="break-words overflow-wrap-anywhere">{metric}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-              {/* Risk Level */}
-              {latestInsight.riskLevel && (
-                <div className="space-y-2 min-w-0">
-                  <h5 className="font-semibold text-sm">Risk Level</h5>
-                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <span className="text-lg shrink-0">{getRiskEmoji(latestInsight.riskLevel)}</span>
-                    <span className={`px-2 py-1 rounded text-xs font-semibold text-white shrink-0 ${getRiskColor(latestInsight.riskLevel)}`}>
-                      {latestInsight.riskLevel}
-                    </span>
-                    {latestInsight.riskDescription && (
-                      <span className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">{latestInsight.riskDescription}</span>
-                    )}
-                  </div>
-                </div>
-              )}
+                      {/* Performance Interpretation */}
+                      {latestInsight.performanceInterpretation && (
+                        <div className="space-y-2 min-w-0">
+                          <h5 className="font-semibold text-sm">Performance Interpretation</h5>
+                          <p className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">
+                            {latestInsight.performanceInterpretation}
+                          </p>
+                        </div>
+                      )}
 
-              {/* Targeted Recommendations */}
-              {latestInsight.targetedRecommendations && latestInsight.targetedRecommendations.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-border min-w-0">
-                  <h5 className="font-semibold text-sm">Targeted Recommendations</h5>
-                  <ul className="space-y-1 text-sm text-muted-foreground">
-                    {latestInsight.targetedRecommendations.map((rec, idx) => (
-                      <li key={idx} className="flex items-start gap-2 min-w-0">
-                        <span className="text-primary mt-0.5 shrink-0">•</span>
-                        <span className="break-words overflow-wrap-anywhere">{rec}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )
-        }
+                      {/* Performance Impact */}
+                      {latestInsight.performanceImpact && latestInsight.performanceImpact.length > 0 && (
+                        <div className="space-y-2 min-w-0">
+                          <h5 className="font-semibold text-sm">Performance Impact</h5>
+                          <ul className="space-y-1 text-sm text-muted-foreground">
+                            {latestInsight.performanceImpact.map((impact, idx) => (
+                              <li key={idx} className="flex items-start gap-2 min-w-0">
+                                <span className="text-destructive mt-0.5 shrink-0">•</span>
+                                <span className="break-words overflow-wrap-anywhere">{impact}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-        // If only 1 participant (not counting coach), show single card
-        if (nonCoachParticipantCount === 1) {
-          const [participantId, participantInsights] = Object.entries(insightsByParticipant)[0]
-          const latestInsight = participantInsights[participantInsights.length - 1]
-          const participantName = latestInsight.participantName
+                      {/* Scores */}
+                      {(latestInsight.balanceScore > 0 || latestInsight.symmetryScore > 0 || latestInsight.posturalEfficiency || latestInsight.movementConsistency || latestInsight.dynamicStability) && (
+                        <div className="space-y-2">
+                          <h5 className="font-semibold text-sm">Scores</h5>
+                          <div className="flex flex-wrap gap-4 text-sm">
+                            {latestInsight.balanceScore > 0 && (
+                              <div>
+                                <span className="text-muted-foreground">Balance Score: </span>
+                                <span className="font-semibold">{latestInsight.balanceScore}</span>
+                              </div>
+                            )}
+                            {latestInsight.symmetryScore > 0 && (
+                              <div>
+                                <span className="text-muted-foreground">Symmetry: </span>
+                                <span className="font-semibold">{latestInsight.symmetryScore}</span>
+                              </div>
+                            )}
+                            {latestInsight.posturalEfficiency && (
+                              <div>
+                                <span className="text-muted-foreground">Postural Efficiency: </span>
+                                <span className="font-semibold">{latestInsight.posturalEfficiency}</span>
+                              </div>
+                            )}
+                            {latestInsight.movementConsistency !== undefined && (
+                              <div>
+                                <span className="text-muted-foreground">Movement Consistency: </span>
+                                <span className="font-semibold">{latestInsight.movementConsistency}</span>
+                              </div>
+                            )}
+                            {latestInsight.dynamicStability !== undefined && (
+                              <div>
+                                <span className="text-muted-foreground">Dynamic Stability: </span>
+                                <span className="font-semibold">{latestInsight.dynamicStability}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
-          return (
-            <div className="space-y-4">
-              <Card className="p-4 min-w-0">
-                <div className="space-y-4 min-w-0">
-                  <div className="flex items-center gap-2 mb-2 min-w-0">
-                    <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
-                    <h4 className="font-semibold text-base truncate min-w-0">🔥 AI Movement Summary – {participantName}</h4>
-                  </div>
-                  {renderInsightCard(participantId, participantInsights)}
-                </div>
-              </Card>
-            </div>
-          )
-        }
+                      {/* Risk Level */}
+                      {latestInsight.riskLevel && (
+                        <div className="space-y-2 min-w-0">
+                          <h5 className="font-semibold text-sm">Risk Level</h5>
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                            <span className="text-lg shrink-0">{getRiskEmoji(latestInsight.riskLevel)}</span>
+                            <span className={`px-2 py-1 rounded text-xs font-semibold text-white shrink-0 ${getRiskColor(latestInsight.riskLevel)}`}>
+                              {latestInsight.riskLevel}
+                            </span>
+                            {latestInsight.riskDescription && (
+                              <span className="text-sm text-muted-foreground break-words overflow-wrap-anywhere">{latestInsight.riskDescription}</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
-        // If more than 1 participant, use accordion
-        return (
-          <Accordion type="single" collapsible className="w-full">
-            {Object.entries(insightsByParticipant).map(([participantId, participantInsights]) => {
-              const latestInsight = participantInsights[participantInsights.length - 1]
-              const participantName = latestInsight.participantName
-              
-              return (
-                <AccordionItem key={participantId} value={participantId} className="border-border">
-                  <AccordionTrigger className="hover:no-underline">
-                    <div className="flex items-center gap-2">
-                      <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
-                      <span className="font-semibold">🔥 AI Movement Summary – {participantName}</span>
+                      {/* Targeted Recommendations */}
+                      {latestInsight.targetedRecommendations && latestInsight.targetedRecommendations.length > 0 && (
+                        <div className="space-y-2 pt-2 border-t border-border min-w-0">
+                          <h5 className="font-semibold text-sm">Targeted Recommendations</h5>
+                          <ul className="space-y-1 text-sm text-muted-foreground">
+                            {latestInsight.targetedRecommendations.map((rec, idx) => (
+                              <li key={idx} className="flex items-start gap-2 min-w-0">
+                                <span className="text-primary mt-0.5 shrink-0">•</span>
+                                <span className="break-words overflow-wrap-anywhere">{rec}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <Card className="p-4 min-w-0">
-                      {renderInsightCard(participantId, participantInsights)}
-                    </Card>
-                  </AccordionContent>
-                </AccordionItem>
-              )
-            })}
-          </Accordion>
-        )
-      })()}
+                  )
+                }
+
+                // Show insights if they exist
+                if (showInsights && insights.length > 0 && Object.keys(insightsByParticipant).length > 0) {
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex flex-col sm:flex-row gap-2 justify-end">
+                        <Button
+                          onClick={handleExportSummary}
+                          disabled={isExporting || !sessionId || insights.length === 0}
+                          size="sm"
+                          variant="outline"
+                          className="flex items-center gap-2 w-full sm:w-auto min-w-0 shrink-0"
+                        >
+                          {isExporting ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                              <span className="truncate">Exporting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Download className="h-4 w-4 shrink-0" />
+                              <span className="truncate">Export Session Summary</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* If only 1 participant (not counting coach), show single card */}
+                      {nonCoachParticipantCount === 1 ? (
+                        <div className="space-y-4">
+                          {Object.entries(insightsByParticipant).map(([participantId, participantInsights]) => {
+                            const latestInsight = participantInsights[participantInsights.length - 1]
+                            const participantName = latestInsight.participantName
+
+                            return (
+                              <Card key={participantId} className="p-4 min-w-0">
+                                <div className="space-y-4 min-w-0">
+                                  <div className="flex items-center gap-2 mb-2 min-w-0">
+                                    <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
+                                    <h4 className="font-semibold text-base truncate min-w-0">🔥 AI Movement Summary – {participantName}</h4>
+                                  </div>
+                                  {renderInsightCard(participantId, participantInsights)}
+                                </div>
+                              </Card>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        // If more than 1 participant, use accordion
+                        <Accordion type="single" collapsible className="w-full">
+                          {Object.entries(insightsByParticipant).map(([participantId, participantInsights]) => {
+                            const latestInsight = participantInsights[participantInsights.length - 1]
+                            const participantName = latestInsight.participantName
+                            
+                            return (
+                              <AccordionItem key={participantId} value={participantId} className="border-border">
+                                <AccordionTrigger className="hover:no-underline">
+                                  <div className="flex items-center gap-2">
+                                    <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
+                                    <span className="font-semibold">🔥 AI Movement Summary – {participantName}</span>
+                                  </div>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                  <Card className="p-4 min-w-0">
+                                    {renderInsightCard(participantId, participantInsights)}
+                                  </Card>
+                                </AccordionContent>
+                              </AccordionItem>
+                            )
+                          })}
+                        </Accordion>
+                      )}
+                    </div>
+                  )
+                } else {
+                  // No insights - show Generate Session Insights button
+                  return (
+                    <div className="space-y-4">
+                      <div className="text-sm text-muted-foreground text-center py-8">
+                        <Lightbulb className="h-8 w-8 mx-auto mb-4 opacity-50" />
+                        <p className="mb-4">No insights generated yet</p>
+                        <p className="text-xs mb-6">Generate comprehensive AI insights from collected metrics</p>
+                        <Button
+                          onClick={handleGenerateInsights}
+                          disabled={isGenerating || !sessionId || metrics.length === 0}
+                          size="lg"
+                          variant="outline"
+                          className="flex items-center gap-2 mx-auto"
+                        >
+                          {isGenerating ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                              <span className="truncate">Generating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lightbulb className="h-4 w-4 shrink-0" />
+                              <span className="truncate">Generate Session Insights</span>
+                            </>
+                          )}
+                        </Button>
+                        {metrics.length === 0 && (
+                          <p className="text-xs text-muted-foreground mt-4">
+                            Metrics are being collected. Please wait for metrics to be available.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                }
+              })()}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
     </div>
   )

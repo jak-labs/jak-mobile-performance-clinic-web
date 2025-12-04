@@ -69,22 +69,22 @@ export async function POST(req: NextRequest) {
       console.log(`[API] Found ${existingSummaries.length} existing summary(ies) for session ${sessionId} - will overwrite with new summary`);
     }
 
-    // Fetch all insights for this session directly from the table
-    // This ensures we get all insights regardless of whether participants are in the schedule
-    console.log(`[API] Fetching all insights for session ${sessionId}`);
+    // Fetch all insights for this session (should be 1 per participant now)
+    console.log(`[API] Fetching insights for session ${sessionId}`);
     const allInsights = await getAllAIInsightsForSession(sessionId);
-    console.log(`[API] Found ${allInsights.length} insights for session ${sessionId}`);
+    console.log(`[API] Found ${allInsights.length} insight(s) for session ${sessionId}`);
 
     if (allInsights.length === 0) {
       return NextResponse.json(
-        { error: 'No insights found for this session' },
+        { error: 'No insights found for this session. Please generate insights first using "Generate Session Insights".' },
         { status: 400 }
       );
     }
 
-    // Group insights by participant
+    // Group insights by participant (should be 1 per participant)
     const insightsByParticipant = allInsights.reduce((acc, insight) => {
       const pid = insight.participant_id || insight.subject_id;
+      // Since we now have only 1 insight per participant, just store it
       if (!acc[pid]) {
         acc[pid] = [];
       }
@@ -92,149 +92,57 @@ export async function POST(req: NextRequest) {
       return acc;
     }, {} as Record<string, typeof allInsights>);
 
-    // Generate summary for each participant
+    // Process each participant's insight (use insight data directly - no LLM summarization needed)
     const summaryPromises = Object.entries(insightsByParticipant).map(async ([participantId, insights]) => {
-      // Calculate average metrics
+      // Should only be 1 insight per participant now
+      const insight = insights[0];
+      const participantName = insight.participant_name || participantId;
+      
+      // Use insight data directly - convert to summary format for PDF generation
       const metrics = {
-        average_balance_score: 0,
-        average_symmetry_score: 0,
-        average_postural_efficiency: 0,
-        risk_level: 'Low' as string,
+        average_balance_score: insight.balance_score || 0,
+        average_symmetry_score: insight.symmetry_score || 0,
+        average_postural_efficiency: insight.postural_efficiency || 0,
+        risk_level: insight.risk_level || 'Low',
       };
 
-      let totalBalance = 0;
-      let totalSymmetry = 0;
-      let totalEfficiency = 0;
-      let balanceCount = 0;
-      let symmetryCount = 0;
-      let efficiencyCount = 0;
-      const riskLevels: string[] = [];
-
-      insights.forEach(insight => {
-        if (insight.balance_score) {
-          totalBalance += insight.balance_score;
-          balanceCount++;
-        }
-        if (insight.symmetry_score) {
-          totalSymmetry += insight.symmetry_score;
-          symmetryCount++;
-        }
-        if (insight.postural_efficiency) {
-          totalEfficiency += insight.postural_efficiency;
-          efficiencyCount++;
-        }
-        if (insight.risk_level) {
-          riskLevels.push(insight.risk_level);
-        }
-      });
-
-      metrics.average_balance_score = balanceCount > 0 ? totalBalance / balanceCount : 0;
-      metrics.average_symmetry_score = symmetryCount > 0 ? totalSymmetry / symmetryCount : 0;
-      metrics.average_postural_efficiency = efficiencyCount > 0 ? totalEfficiency / efficiencyCount : 0;
-
-      // Determine overall risk level (most common or highest)
-      if (riskLevels.length > 0) {
-        const riskCounts = riskLevels.reduce((acc, risk) => {
-          acc[risk] = (acc[risk] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
-        
-        const sortedRisks = Object.entries(riskCounts).sort((a, b) => b[1] - a[1]);
-        metrics.risk_level = sortedRisks[0][0];
-      }
-
-      // Prepare insights data for LLM
-      const insightsData = insights.map(insight => ({
-        timestamp: insight.timestamp,
-        postureMetrics: insight.posture_metrics,
-        performanceInterpretation: insight.performance_interpretation,
-        performanceImpact: insight.performance_impact,
-        balanceScore: insight.balance_score,
-        symmetryScore: insight.symmetry_score,
-        posturalEfficiency: insight.postural_efficiency,
-        riskLevel: insight.risk_level,
-        riskDescription: insight.risk_description,
-        targetedRecommendations: insight.targeted_recommendations,
-      }));
-
-      // Generate summary using LLM
-      const participantName = insights[0]?.participant_name || participantId;
-      
-      const prompt = `You are an expert movement analyst and sports performance coach. Analyze the following collection of AI movement analysis insights from a coaching session and create a comprehensive summary report.
-
-Participant: ${participantName}
-Total Insights Analyzed: ${insights.length}
-Average Metrics:
-- Balance Score: ${metrics.average_balance_score.toFixed(1)}/100
-- Symmetry Score: ${metrics.average_symmetry_score.toFixed(1)}/100
-- Postural Efficiency: ${metrics.average_postural_efficiency.toFixed(1)}/100
-- Overall Risk Level: ${metrics.risk_level}
-
-Insights Data:
-${JSON.stringify(insightsData, null, 2)}
-
-Please provide a comprehensive summary in JSON format with the following structure:
-{
-  "summary": "A comprehensive 3-4 paragraph summary of the movement patterns, trends, and overall performance observed throughout the session. Highlight key patterns, improvements, or concerns.",
-  "key_findings": ["Finding 1", "Finding 2", "Finding 3", ...], // 5-7 key findings
-  "recommendations": ["Recommendation 1", "Recommendation 2", ...], // 5-7 actionable recommendations
-  "overall_assessment": "A brief 2-3 sentence overall assessment of the participant's movement quality and performance"
-}
-
-Focus on:
-- Identifying patterns and trends across all insights
-- Highlighting consistent issues or improvements
-- Providing actionable recommendations based on the full session data
-- Overall performance trajectory`;
-
-      console.log(`[API] Generating summary for participant ${participantId} with ${insights.length} insights`);
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert movement analyst and sports performance coach. Provide detailed, actionable insights based on movement analysis data.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        max_tokens: 2000,
-        response_format: { type: 'json_object' },
-      });
-
-      const summaryData = JSON.parse(response.choices[0].message.content || '{}');
+      // Convert insight to summary format (for PDF generation)
+      // The insight already contains all the analysis, we just need to format it for the PDF
+      const summaryData = {
+        summary: insight.performance_interpretation || 'No summary available',
+        key_findings: [
+          insight.movement_quality ? `Movement Quality: ${insight.movement_quality}` : null,
+          ...(insight.movement_patterns || []),
+          insight.risk_description || null,
+        ].filter(Boolean) as string[],
+        recommendations: insight.targeted_recommendations || [],
+        overall_assessment: insight.performance_interpretation || 'No assessment available',
+      };
 
       // Check if summary already exists for this participant in this session
-      // If it exists, we'll use the same summary_id to overwrite it
-      // Otherwise, generate a new one
       let summaryId: string;
       const existingSummary = existingSummaries.find(s => s.participant_id === participantId);
       
       if (existingSummary) {
-        // Use existing summary_id to overwrite
         summaryId = existingSummary.summary_id;
-        console.log(`[API] Overwriting existing summary ${summaryId} for participant ${participantId}`);
+        console.log(`[API] Using existing summary ${summaryId} for participant ${participantId}`);
       } else {
-        // Generate new summary ID
         summaryId = `${Date.now()}-${randomUUID()}`;
         console.log(`[API] Creating new summary ${summaryId} for participant ${participantId}`);
       }
 
-      // Save summary to database (PutCommand will overwrite if key exists)
+      // Save summary to database (for PDF generation)
       await saveAISummary({
         session_id: sessionId,
         summary_id: summaryId,
         participant_id: participantId,
         participant_name: participantName,
-        summary: summaryData.summary || 'No summary available',
-        key_findings: summaryData.key_findings || [],
-        recommendations: summaryData.recommendations || [],
-        overall_assessment: summaryData.overall_assessment || 'No assessment available',
+        summary: summaryData.summary,
+        key_findings: summaryData.key_findings,
+        recommendations: summaryData.recommendations,
+        overall_assessment: summaryData.overall_assessment,
         metrics_summary: metrics,
-        insights_count: insights.length,
+        insights_count: 1, // Only 1 insight per participant now
       });
 
       return {
@@ -243,10 +151,47 @@ Focus on:
         summaryId,
         summary: summaryData,
         metrics,
+        // Include insight data for PDF generation
+        insight: {
+          movementQuality: insight.movement_quality,
+          movementPatterns: insight.movement_patterns || [],
+          movementConsistency: insight.movement_consistency,
+          dynamicStability: insight.dynamic_stability,
+          performanceInterpretation: insight.performance_interpretation,
+          performanceImpact: insight.performance_impact || [],
+          balanceScore: insight.balance_score,
+          symmetryScore: insight.symmetry_score,
+          posturalEfficiency: insight.postural_efficiency,
+          riskLevel: insight.risk_level,
+          riskDescription: insight.risk_description,
+          targetedRecommendations: insight.targeted_recommendations || [],
+          postureMetrics: insight.posture_metrics,
+        },
       };
     });
 
-    const summaries = await Promise.all(summaryPromises);
+    // Process summaries sequentially with delays to avoid rate limits
+    // Instead of Promise.all (parallel), process one at a time with 2-second delays
+    const summaries: any[] = [];
+    const participantEntries = Object.entries(insightsByParticipant);
+    
+    for (let i = 0; i < participantEntries.length; i++) {
+      // Add delay between participants (except the first one)
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+      }
+      
+      try {
+        // Execute the promise for this participant
+        const [participantId, insights] = participantEntries[i];
+        const promise = summaryPromises[i];
+        const result = await promise;
+        summaries.push(result);
+      } catch (error: any) {
+        console.error(`[API] Failed to generate summary for participant:`, error);
+        // Continue with next participant instead of failing entire request
+      }
+    }
 
     // Generate PDF for each summary
     const pdfBuffers: Buffer[] = [];

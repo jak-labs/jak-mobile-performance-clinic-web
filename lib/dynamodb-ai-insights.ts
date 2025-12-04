@@ -41,6 +41,11 @@ export interface AIInsight {
   targeted_recommendations?: string[];
   timestamp: string; // ISO 8601 timestamp
   created_at: string; // ISO 8601 timestamp
+  // Movement analysis fields
+  movement_quality?: string;
+  movement_patterns?: string[];
+  movement_consistency?: number;
+  dynamic_stability?: number;
 }
 
 /**

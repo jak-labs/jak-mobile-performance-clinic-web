@@ -76,6 +76,7 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
 
     setIsDownloading(true)
     try {
+      // Step 1: Generate and save summary to DB (fast, no PDF generation)
       const response = await fetch('/api/ai-insights/export-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,45 +84,56 @@ export default function SessionDetailsPanel({ session, onClose }: SessionDetails
       })
 
       if (response.ok) {
-        // Check if response is PDF
-        const contentType = response.headers.get('content-type')
-        if (contentType && contentType.includes('application/pdf')) {
-          // Download PDF
-          const blob = await response.blob()
-          const url = window.URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `session-summary-${session.id}-${Date.now()}.pdf`
-          document.body.appendChild(a)
-          a.click()
-          window.URL.revokeObjectURL(url)
-          document.body.removeChild(a)
-        } else {
-          // Response is not PDF - try to parse as JSON or text
-          const contentType = response.headers.get('content-type')
-          let errorMessage = 'Failed to download summary'
-          
-          try {
-            if (contentType && contentType.includes('application/json')) {
-              const errorData = await response.json()
-              errorMessage = errorData.error || errorMessage
+        // Step 2: Download PDF (generated on-demand)
+        try {
+          const pdfResponse = await fetch(`/api/ai-insights/download-pdf/${session.id}`, {
+            method: 'GET',
+          })
+
+          if (pdfResponse.ok) {
+            const contentType = pdfResponse.headers.get('content-type')
+            if (contentType && contentType.includes('application/pdf')) {
+              // Download PDF
+              const blob = await pdfResponse.blob()
+              const url = window.URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `session-summary-${session.id}-${Date.now()}.pdf`
+              document.body.appendChild(a)
+              a.click()
+              window.URL.revokeObjectURL(url)
+              document.body.removeChild(a)
             } else {
-              // Response might be HTML error page
-              const text = await response.text()
-              console.error('[Session Details] Non-JSON response:', text.substring(0, 200))
-              errorMessage = `Server error (${response.status}): Received non-PDF response`
+              alert('Failed to download PDF - invalid response format')
             }
-          } catch (parseError) {
-            console.error('[Session Details] Error parsing response:', parseError)
-            errorMessage = `Server error (${response.status}): ${response.statusText}`
+          } else {
+            const contentType = pdfResponse.headers.get('content-type')
+            let errorMessage = `Failed to download PDF (${pdfResponse.status})`
+            
+            try {
+              if (contentType && contentType.includes('application/json')) {
+                const errorData = await pdfResponse.json()
+                errorMessage = errorData.error || errorMessage
+              } else {
+                const text = await pdfResponse.text()
+                console.error('[Session Details] PDF download error response (non-JSON):', text.substring(0, 200))
+                errorMessage = `Server error (${pdfResponse.status}): ${pdfResponse.statusText}`
+              }
+            } catch (parseError) {
+              console.error('[Session Details] Error parsing PDF download error response:', parseError)
+              errorMessage = `Server error (${pdfResponse.status}): ${pdfResponse.statusText}`
+            }
+            
+            alert(errorMessage)
           }
-          
-          alert(errorMessage)
+        } catch (pdfError: any) {
+          console.error('[Session Details] Error downloading PDF:', pdfError)
+          alert(`Summary generated but PDF download failed: ${pdfError.message || 'Unknown error'}`)
         }
       } else {
         // Handle error response - check content type first
         const contentType = response.headers.get('content-type')
-        let errorMessage = `Failed to download summary (${response.status})`
+        let errorMessage = `Failed to export summary (${response.status})`
         
         try {
           if (contentType && contentType.includes('application/json')) {
