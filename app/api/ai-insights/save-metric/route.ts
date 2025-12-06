@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
       posturalEfficiency: body.posturalEfficiency,
       riskLevel: body.riskLevel,
       hasPostureMetrics: !!body.postureMetrics,
+      hasMovementMetrics: !!(body.movementQuality || body.movementPatterns || body.movementConsistency || body.dynamicStability),
     });
 
     const {
@@ -46,6 +47,10 @@ export async function POST(req: NextRequest) {
       posturalEfficiency,
       riskLevel,
       postureMetrics,
+      movementQuality,
+      movementPatterns,
+      movementConsistency,
+      dynamicStability,
       timestamp,
     } = body;
 
@@ -84,6 +89,10 @@ export async function POST(req: NextRequest) {
       postural_efficiency: posturalEfficiency,
       risk_level: riskLevel,
       posture_metrics: postureMetricsSnakeCase,
+      movement_quality: movementQuality,
+      movement_patterns: movementPatterns,
+      movement_consistency: movementConsistency,
+      dynamic_stability: dynamicStability,
     };
 
     console.log('[API] Saving AI metric to DynamoDB:', {

@@ -1270,9 +1270,12 @@ function RoomContent({
               <TabsTrigger value="session" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
                 Session
               </TabsTrigger>
-              <TabsTrigger value="ai-insights" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
-                AI Insights
-              </TabsTrigger>
+              {/* Only show AI Insights tab to coaches */}
+              {localParticipant?.identity === sessionOwnerId && (
+                <TabsTrigger value="ai-insights" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
+                  AI Insights
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
 
@@ -1444,21 +1447,24 @@ function RoomContent({
             )}
           </TabsContent>
 
-          <TabsContent
-            value="ai-insights"
-            className="flex-1 overflow-hidden mt-0 p-0 h-full"
-          >
-            <AIInsightsPanel
-              participants={participants.map(p => ({
-                identity: p.identity,
-                name: participantInfo[p.identity]?.fullName || p.name || p.identity
-              }))}
-              participantInfo={participantInfo}
-              sessionOwnerId={sessionOwnerId}
-              sessionId={sessionId}
-              sessionType={sessionType}
-            />
-          </TabsContent>
+          {/* Only show AI Insights tab content to coaches */}
+          {localParticipant?.identity === sessionOwnerId && (
+            <TabsContent
+              value="ai-insights"
+              className="flex-1 overflow-hidden mt-0 p-0 h-full"
+            >
+              <AIInsightsPanel
+                participants={participants.map(p => ({
+                  identity: p.identity,
+                  name: participantInfo[p.identity]?.fullName || p.name || p.identity
+                }))}
+                participantInfo={participantInfo}
+                sessionOwnerId={sessionOwnerId}
+                sessionId={sessionId}
+                sessionType={sessionType}
+              />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>

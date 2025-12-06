@@ -7,6 +7,7 @@ import Navigation from "@/components/navigation"
 import "./globals.css"
 import { Suspense } from "react"
 import { Providers } from "@/components/providers"
+import Script from "next/script"
 
 export const metadata: Metadata = {
   title: "JAK Labs - Athlete Performance Monitoring",

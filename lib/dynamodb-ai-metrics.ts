@@ -34,6 +34,10 @@ export interface AIMetric {
     pelvic_sway?: string;
     additional_metrics?: string[];
   };
+  movement_quality?: string; // Description of movement quality
+  movement_patterns?: string[]; // Array of movement patterns observed
+  movement_consistency?: number; // 0-100, how consistent movement is across frames
+  dynamic_stability?: number; // 0-100, stability throughout movement
   created_at: string; // ISO 8601 timestamp
 }
 
@@ -56,6 +60,10 @@ export async function saveAIMetric(
     postural_efficiency: metric.postural_efficiency,
     risk_level: metric.risk_level,
     posture_metrics: metric.posture_metrics,
+    movement_quality: metric.movement_quality,
+    movement_patterns: metric.movement_patterns,
+    movement_consistency: metric.movement_consistency,
+    dynamic_stability: metric.dynamic_stability,
     created_at: timestamp,
   };
 
@@ -157,7 +165,14 @@ export async function getAllAIMetricsForSession(sessionId: string): Promise<AIMe
     });
 
     const response = await docClient.send(command);
-    return (response.Items || []) as AIMetric[];
+    const metrics = (response.Items || []) as AIMetric[];
+    
+    // Sort by timestamp descending (newest first) since Scan doesn't guarantee order
+    metrics.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    console.log(`[DynamoDB] Retrieved ${metrics.length} metrics for session ${sessionId}. Latest timestamp: ${metrics[0]?.timestamp || 'none'}`);
+    
+    return metrics;
   } catch (error: any) {
     console.error('[DynamoDB] Error getting all AI metrics for session:', error);
     throw error;

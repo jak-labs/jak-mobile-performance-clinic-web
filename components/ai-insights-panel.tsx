@@ -9,6 +9,16 @@ import { DataPacket_Kind, Track, ConnectionState } from "livekit-client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import {
+  createPoseDetector,
+  estimatePoses,
+  landmarksToKeypoints,
+  calculateBiomechanicalAngles,
+  calculateBiomechanicalMetrics,
+  type PoseData,
+  type PoseKeypoint,
+  type PoseDetector,
+} from "@/lib/pose-detection"
 
 interface AIInsight {
   participantId: string
@@ -61,22 +71,42 @@ interface AIMetric {
     pelvic_sway?: string
     additional_metrics?: string[]
   }
+  movement_quality?: string
+  movement_patterns?: string[]
+  movement_consistency?: number
+  dynamic_stability?: number
 }
 
 export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId, sessionType }: AIInsightsPanelProps) {
   const room = useRoomContext()
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true })
+  
+  // Check if current user is the coach (session owner)
+  const isCoach = room?.localParticipant?.identity === sessionOwnerId
+  
+  // Only show metrics and insights to the coach
+  if (!isCoach) {
+    return (
+      <div className="h-full flex items-center justify-center p-8">
+        <div className="text-center text-muted-foreground">
+          <p className="text-sm">AI insights and metrics are only available to coaches.</p>
+        </div>
+      </div>
+    )
+  }
   const [insights, setInsights] = useState<AIInsight[]>([]) // Generated insights (single per participant) - only shown after clicking "Generate Session Insights"
   const [metrics, setMetrics] = useState<AIMetric[]>([]) // Real-time metrics
   const [latestMetrics, setLatestMetrics] = useState<Record<string, AIMetric>>({}) // Latest metric per participant
+  const [metricsUpdateKey, setMetricsUpdateKey] = useState(0) // Force re-render key
+  const [metricsTimestamp, setMetricsTimestamp] = useState<string>('') // Timestamp of last metrics update
   const [showInsights, setShowInsights] = useState(false) // Flag to control whether to show insights or metrics
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const frameCollectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const firstAnalysisTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map())
-  // Frame buffer: Map<participantId, Array<{imageBase64: string, timestamp: number, sequenceNumber: number}>>
-  const framesBufferRef = useRef<Map<string, Array<{ imageBase64: string; timestamp: number; sequenceNumber: number }>>>(new Map())
+  const poseDetectorsRef = useRef<Map<string, PoseDetector>>(new Map())
+  // Pose data buffer: Map<participantId, Array<PoseData>>
+  const poseDataBufferRef = useRef<Map<string, Array<PoseData>>>(new Map())
   const setupCompleteRef = useRef(false) // Track if intervals have been set up
   const [subjectName, setSubjectName] = useState<string | null>(null)
   const [subjectId, setSubjectId] = useState<string | null>(null) // Store subject_id for mocap sessions
@@ -247,30 +277,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     setIsLoadingInsights(true)
   }, [sessionId])
 
-  // Load metrics from localStorage on mount
+  // Clear any old localStorage cache for metrics on mount
+  // We don't use localStorage for metrics anymore - we fetch fresh data every 2 seconds
   useEffect(() => {
     if (!sessionId) return
     
+    // Clear any old cache to prevent confusion
     try {
       const storageKey = `ai-metrics-${sessionId}`
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const storedMetrics = JSON.parse(stored)
-        setMetrics(storedMetrics.metrics || [])
-        
-        // Update latest metrics per participant
-        const latest: Record<string, AIMetric> = {}
-        storedMetrics.metrics?.forEach((metric: AIMetric) => {
-          const pid = metric.participant_id
-          if (!latest[pid] || new Date(metric.timestamp) > new Date(latest[pid].timestamp)) {
-            latest[pid] = metric
-          }
-        })
-        setLatestMetrics(latest)
-        console.log(`[AI Insights] Loaded ${storedMetrics.metrics?.length || 0} metrics from localStorage`)
-      }
+      localStorage.removeItem(storageKey)
+      console.log('[AI Insights] Cleared old localStorage cache for metrics (not used anymore)')
     } catch (error) {
-      console.error('[AI Insights] Error loading metrics from localStorage:', error)
+      // Ignore errors
     }
   }, [sessionId])
 
@@ -280,10 +298,42 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
     const fetchMetrics = async () => {
       try {
-        const response = await fetch(`/api/ai-insights/metrics/${sessionId}`)
+        console.log(`[AI Insights] Fetching metrics for session: ${sessionId} at ${new Date().toISOString()}`)
+        // Add cache-busting query parameter to force fresh fetch
+        const response = await fetch(`/api/ai-insights/metrics/${sessionId}?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          },
+        })
+        
         if (response.ok) {
           const data = await response.json()
           const fetchedMetrics = data.metrics || []
+          
+          console.log(`[AI Insights] 📥 Received ${fetchedMetrics.length} metrics from API at ${new Date().toISOString()}`)
+          
+          // Log the LATEST metric timestamp to see if new ones are coming in
+          if (fetchedMetrics.length > 0) {
+            const sortedByTime = [...fetchedMetrics].sort((a, b) => 
+              new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            )
+            const latest = sortedByTime[0]
+            console.log(`[AI Insights] 🕐 LATEST metric in API response:`, {
+              timestamp: latest.timestamp,
+              balance: latest.balance_score,
+              symmetry: latest.symmetry_score,
+              postural: latest.postural_efficiency,
+              age: `${Math.round((Date.now() - new Date(latest.timestamp).getTime()) / 1000)} seconds ago`
+            })
+            
+            // Log all unique timestamps to see if we're getting new ones
+            const uniqueTimestamps = [...new Set(fetchedMetrics.map((m: AIMetric) => m.timestamp))].sort().reverse()
+            console.log(`[AI Insights] 📅 All unique timestamps in response (${uniqueTimestamps.length}):`, uniqueTimestamps.slice(0, 5))
+          }
+          
+          // Always update state, even if empty (to clear stale data)
           setMetrics(fetchedMetrics)
           
           // Update latest metrics per participant
@@ -294,29 +344,95 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               latest[pid] = metric
             }
           })
-          setLatestMetrics(latest)
           
-          // Save to localStorage for instant display
-          try {
-            const storageKey = `ai-metrics-${sessionId}`
-            localStorage.setItem(storageKey, JSON.stringify({
-              metrics: fetchedMetrics,
-              lastUpdated: new Date().toISOString(),
-            }))
-          } catch (storageError) {
-            console.error('[AI Insights] Error saving metrics to localStorage:', storageError)
+          // Log what we're about to set
+          console.log(`[AI Insights] 📥 Fetched ${fetchedMetrics.length} metrics, latest per participant:`, Object.keys(latest).map(pid => ({
+            participantId: pid,
+            name: latest[pid].participant_name,
+            balance: latest[pid].balance_score,
+            symmetry: latest[pid].symmetry_score,
+            postural: latest[pid].postural_efficiency,
+            timestamp: latest[pid].timestamp,
+          })))
+          
+          // Check if values actually changed
+          const currentLatest = latestMetrics
+          let hasChanges = false
+          Object.keys(latest).forEach(pid => {
+            const newMetric = latest[pid]
+            const oldMetric = currentLatest[pid]
+            if (!oldMetric || 
+                oldMetric.balance_score !== newMetric.balance_score ||
+                oldMetric.symmetry_score !== newMetric.symmetry_score ||
+                oldMetric.postural_efficiency !== newMetric.postural_efficiency ||
+                oldMetric.timestamp !== newMetric.timestamp) {
+              hasChanges = true
+              console.log(`[AI Insights] 🔄 CHANGES DETECTED for ${pid}:`, {
+                old: oldMetric ? { balance: oldMetric.balance_score, symmetry: oldMetric.symmetry_score, postural: oldMetric.postural_efficiency } : 'none',
+                new: { balance: newMetric.balance_score, symmetry: newMetric.symmetry_score, postural: newMetric.postural_efficiency }
+              })
+            }
+          })
+          
+          if (!hasChanges && Object.keys(latest).length > 0) {
+            console.log(`[AI Insights] ⚠️ NO CHANGES detected - values are the same, but forcing update anyway`)
           }
+          
+          // Force update by creating a completely new object with deep copy
+          // This ensures React detects the change even if values are the same
+          const newLatestMetrics: Record<string, AIMetric> = {}
+          Object.keys(latest).forEach(pid => {
+            newLatestMetrics[pid] = { ...latest[pid] } // Deep copy each metric
+          })
+          
+          const now = new Date().toISOString()
+          
+          // ALWAYS increment updateKey to force re-render - do this FIRST
+          setMetricsUpdateKey(prev => {
+            const newKey = prev + 1
+            console.log(`[AI Insights] 🔑 FORCING updateKey increment: ${prev} -> ${newKey}`)
+            return newKey
+          })
+          
+          // Update timestamp
+          setMetricsTimestamp(now)
+          
+          // Update metrics - this MUST happen to trigger re-render
+          setLatestMetrics(newLatestMetrics)
+          
+          console.log(`[AI Insights] ✅ State updated - latestMetrics keys:`, Object.keys(newLatestMetrics), 'timestamp:', now)
+          console.log(`[AI Insights] 📈 Values being set:`, Object.values(newLatestMetrics).map(m => ({
+            name: m.participant_name,
+            balance: m.balance_score,
+            symmetry: m.symmetry_score,
+            postural: m.postural_efficiency,
+            timestamp: m.timestamp,
+          })))
+          
+          // Don't save to localStorage - we fetch fresh data every 2 seconds anyway
+          // localStorage was causing confusion and isn't needed for real-time metrics
+        } else {
+          const errorText = await response.text()
+          console.error('[AI Insights] Response not OK:', response.status, errorText)
         }
       } catch (error) {
         console.error('[AI Insights] Error fetching metrics:', error)
       }
     }
 
-    fetchMetrics()
-    const interval = setInterval(fetchMetrics, 5000) // Fetch every 5 seconds
+    fetchMetrics() // Fetch immediately
+    const interval = setInterval(fetchMetrics, 2000) // Fetch every 2 seconds (very frequent for real-time updates)
 
     return () => clearInterval(interval)
   }, [sessionId])
+
+  // Debug: Log when latestMetrics changes
+  useEffect(() => {
+    console.log(`[AI Insights] 🔄 latestMetrics changed:`, Object.keys(latestMetrics).length, 'participants', 'updateKey:', metricsUpdateKey, 'timestamp:', metricsTimestamp)
+    Object.entries(latestMetrics).forEach(([pid, metric]) => {
+      console.log(`[AI Insights] 📊 Participant ${pid}: balance=${metric.balance_score}, symmetry=${metric.symmetry_score}, postural=${metric.postural_efficiency}, timestamp=${metric.timestamp}`)
+    })
+  }, [latestMetrics, metricsUpdateKey, metricsTimestamp])
 
   // Fetch saved AI insights from database when sessionId is available
   // This runs in background and updates insights if database has newer/more data
@@ -468,9 +584,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }, [room])
 
-  // Set up video elements for frame capture
+  // Set up video elements for pose detection
   useEffect(() => {
-    if (!room || !canvasRef.current) return
+    if (!room) return
 
     // Create video elements for each track
     tracks.forEach((trackRef) => {
@@ -490,15 +606,26 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       videoElement.play().catch(console.error)
 
       videoElementsRef.current.set(participantId, videoElement)
+
+      // Pose detector will be initialized on-demand in processPoseDetection
+      // This avoids race conditions with async initialization
     })
 
     return () => {
-      // Cleanup video elements
-      videoElementsRef.current.forEach((video) => {
+      // Cleanup video elements and pose detectors
+      videoElementsRef.current.forEach((video, participantId) => {
         video.srcObject = null
         document.body.removeChild(video)
+        
+        // Clean up pose detector
+        const pose = poseDetectorsRef.current.get(participantId)
+        if (pose) {
+          // MediaPipe Pose doesn't have a close() method, just remove from ref
+          poseDetectorsRef.current.delete(participantId)
+        }
       })
       videoElementsRef.current.clear()
+      poseDetectorsRef.current.clear()
     }
   }, [room, tracks])
 
@@ -525,11 +652,11 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     saveInsightsToStorageRef.current = saveInsightsToStorage
   }, [saveInsightsToStorage])
 
-  // Collect frames every 3 seconds and analyze every 30 seconds
-  // Only set up once when room and canvas are available
+  // Collect pose data every second and analyze every 10 seconds
+  // Only set up once when room and video elements are available
   useEffect(() => {
-    if (!room || !canvasRef.current) {
-      console.log('[AI Insights] Skipping setup - room or canvas not available', { hasRoom: !!room, hasCanvas: !!canvasRef.current })
+    if (!room) {
+      console.log('[AI Insights] Skipping setup - room not available')
       return
     }
 
@@ -539,7 +666,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       return
     }
 
-    console.log('[AI Insights] Setting up intervals for the first time')
+    console.log('[AI Insights] Setting up pose detection intervals for the first time')
 
     // Clear any existing intervals/timeouts before setting up new ones (safety check)
     if (frameCollectionIntervalRef.current) {
@@ -555,70 +682,138 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       firstAnalysisTimeoutRef.current = null
     }
 
-    const collectFrame = () => {
-      // Only collect if room is connected
+    // Initialize pose detector for a participant if not already initialized
+    const ensurePoseDetector = async (participantId: string) => {
+      if (poseDetectorsRef.current.has(participantId)) {
+        return poseDetectorsRef.current.get(participantId)!;
+      }
+
+      try {
+        const detector = await createPoseDetector();
+        poseDetectorsRef.current.set(participantId, detector);
+        console.log(`[AI Insights] Initialized pose detector for ${participantId}`);
+        return detector;
+      } catch (error) {
+        console.error(`[AI Insights] Error initializing pose detector for ${participantId}:`, error);
+        return null;
+      }
+    };
+
+    // Process video frames for pose detection
+    const processPoseDetection = async () => {
+      // Only process if room is connected
       if (!room || room.state !== ConnectionState.Connected) {
-        console.log('[AI Insights] Room not connected, skipping frame collection')
-        return
+        console.log('[AI Insights] Room not connected, skipping pose detection');
+        return;
       }
 
-      const canvas = canvasRef.current
-      if (!canvas) {
-        console.log('[AI Insights] Canvas not available')
-        return
+      const videoElementsCount = videoElementsRef.current.size;
+      
+      // Skip processing if already processing (prevent overlapping calls)
+      if ((window as any).__poseDetectionProcessing) {
+        return;
       }
+      (window as any).__poseDetectionProcessing = true;
 
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        console.log('[AI Insights] Canvas context not available')
-        return
-      }
+      try {
+        // Process only ONE participant at a time to prevent browser hangs
+        // Process the first available participant, skip others this cycle
+        const entries = Array.from(videoElementsRef.current.entries());
+        if (entries.length === 0) {
+          return;
+        }
 
-      // Collect frames from each participant's video
-      for (const [participantId, videoElement] of videoElementsRef.current.entries()) {
-        if (!videoElement || videoElement.readyState < 2) continue
+        // Only process the first participant to reduce load
+        const [participantId, videoElement] = entries[0];
+        
+        if (!videoElement) {
+          console.log(`[AI Insights] No video element for ${participantId}`);
+          return;
+        }
+
+        if (videoElement.readyState < 2) {
+          console.log(`[AI Insights] Video element not ready for ${participantId} (readyState: ${videoElement.readyState})`);
+          return;
+        }
+
+        // Ensure pose detector is initialized (without timeout - let it take as long as needed)
+        let detector = poseDetectorsRef.current.get(participantId);
+        if (!detector) {
+          console.log(`[AI Insights] Initializing pose detector for ${participantId}...`);
+          try {
+            detector = await ensurePoseDetector(participantId);
+            if (!detector) {
+              console.error(`[AI Insights] Failed to initialize pose detector for ${participantId}`);
+              return;
+            }
+            console.log(`[AI Insights] Pose detector initialized for ${participantId}`);
+          } catch (initError) {
+            console.error(`[AI Insights] Pose detector initialization failed:`, initError);
+            // Don't return - continue without pose detection rather than blocking
+            console.warn(`[AI Insights] Continuing without pose detection for ${participantId}`);
+            return;
+          }
+        }
 
         try {
-          canvas.width = videoElement.videoWidth || 640
-          canvas.height = videoElement.videoHeight || 480
+          // Estimate poses using ONNX Runtime Web + YOLOv8-Pose
+          const poses = await estimatePoses(detector, videoElement);
 
-          if (canvas.width === 0 || canvas.height === 0) continue
-
-          ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
-
-          // Convert to base64 with reduced quality (0.6) to manage token usage
-          const imageBase64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1]
-
-          // Get or create frame buffer for this participant
-          if (!framesBufferRef.current.has(participantId)) {
-            framesBufferRef.current.set(participantId, [])
+          if (!poses || poses.length === 0) {
+            // No pose detected, skip processing
+            return;
           }
 
-          const buffer = framesBufferRef.current.get(participantId)!
-          const sequenceNumber = buffer.length
-          const timestamp = sequenceNumber * 3 // Each frame is 3 seconds apart
+          // Use the first (most confident) pose
+          const pose = poses[0];
+          if (!pose.keypoints || pose.keypoints.length === 0) {
+            return;
+          }
 
-          // Add frame to buffer (keep max 10 frames)
-          buffer.push({
-            imageBase64,
+          // Process the pose data (keypoints are already in correct format)
+          const keypoints = landmarksToKeypoints(pose.keypoints);
+          const angles = calculateBiomechanicalAngles(keypoints);
+          const metrics = calculateBiomechanicalMetrics(keypoints);
+
+          // Get or create pose data buffer for this participant
+          if (!poseDataBufferRef.current.has(participantId)) {
+            poseDataBufferRef.current.set(participantId, []);
+          }
+
+          const buffer = poseDataBufferRef.current.get(participantId)!;
+          const sequenceNumber = buffer.length;
+          const timestamp = sequenceNumber * 3; // Each pose is 3 seconds apart (since we process every 3 seconds)
+
+          // Add pose data to buffer
+          const poseData: PoseData = {
             timestamp,
             sequenceNumber,
-          })
+            keypoints,
+            angles,
+            metrics,
+          };
 
-          // Limit buffer to 10 frames (30 seconds total)
-          if (buffer.length > 10) {
-            buffer.shift() // Remove oldest frame
+          buffer.push(poseData);
+
+          // Limit buffer to 12 poses (12 seconds total - enough for 10-second analysis intervals)
+          if (buffer.length > 12) {
+            buffer.shift(); // Remove oldest pose
             // Adjust sequence numbers
-            buffer.forEach((frame, idx) => {
-              frame.sequenceNumber = idx
-              frame.timestamp = idx * 3
-            })
+            buffer.forEach((pose, idx) => {
+              pose.sequenceNumber = idx;
+              pose.timestamp = idx * 3; // Each pose is 3 seconds apart
+            });
           }
 
-          console.log(`[AI Insights] Collected frame ${sequenceNumber + 1} for participant ${participantId} (${buffer.length}/10 frames)`)
+          console.log(`[AI Insights] Collected pose data ${sequenceNumber + 1} for participant ${participantId} (${buffer.length}/12 poses)`);
+          
+          // Yield to browser after processing
+          await new Promise(resolve => setTimeout(resolve, 0));
         } catch (error) {
-          console.error(`[AI Insights] Error collecting frame for ${participantId}:`, error)
+          console.error(`[AI Insights] Error processing pose detection for ${participantId}:`, error);
         }
+      } finally {
+        (window as any).__poseDetectionProcessing = false;
       }
     }
 
@@ -633,19 +828,19 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       console.log(`[AI Insights] Starting movement analysis - ${videoElementsCount} video elements, sessionOwnerId: ${sessionOwnerId}`)
       console.log(`[AI Insights] Video element participant IDs:`, Array.from(videoElementsRef.current.keys()))
 
-      // Analyze each participant's collected frames
-      const participantsToAnalyze = Array.from(framesBufferRef.current.entries())
-      console.log(`[AI Insights] Found ${participantsToAnalyze.length} participant(s) with frame buffers`)
-      console.log(`[AI Insights] Participants with frames:`, participantsToAnalyze.map(([id, frames]) => ({ id, frameCount: frames.length })))
+      // Analyze each participant's collected pose data
+      const participantsToAnalyze = Array.from(poseDataBufferRef.current.entries())
+      console.log(`[AI Insights] Found ${participantsToAnalyze.length} participant(s) with pose data buffers`)
+      console.log(`[AI Insights] Participants with pose data:`, participantsToAnalyze.map(([id, poses]) => ({ id, poseCount: poses.length })))
       
       if (participantsToAnalyze.length === 0) {
-        console.log(`[AI Insights] No participants with frames to analyze`)
+        console.log(`[AI Insights] No participants with pose data to analyze`)
         return
       }
 
-      for (const [participantId, frames] of participantsToAnalyze) {
-        if (frames.length === 0) {
-          console.log(`[AI Insights] No frames collected for participant ${participantId}, skipping`)
+      for (const [participantId, poseDataArray] of participantsToAnalyze) {
+        if (poseDataArray.length === 0) {
+          console.log(`[AI Insights] No pose data collected for participant ${participantId}, skipping`)
           continue
         }
 
@@ -657,7 +852,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           continue
         }
 
-        console.log(`[AI Insights] Analyzing ${frames.length} frames for participant: ${participantId} (will analyze even if less than 10 frames)`)
+        console.log(`[AI Insights] 🔬 Analyzing ${poseDataArray.length} pose data points for participant: ${participantId} (will analyze even if less than 4 poses)`)
 
         // Use subject name from schedule if available, otherwise use participant name
         // Use refs to get latest values without causing re-renders
@@ -677,15 +872,32 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         }
 
         try {
-          // Send frames for movement analysis
+          // Calculate average metrics from pose data
+          const avgMetrics = poseDataArray.reduce((acc, pose) => {
+            if (pose.metrics) {
+              acc.balanceScore += pose.metrics.balanceScore
+              acc.symmetryScore += pose.metrics.symmetryScore
+              acc.posturalEfficiency += pose.metrics.posturalEfficiency
+            }
+            return acc
+          }, { balanceScore: 0, symmetryScore: 0, posturalEfficiency: 0 })
+
+          const count = poseDataArray.length
+          const avgBalanceScore = count > 0 ? Math.round(avgMetrics.balanceScore / count) : 0
+          const avgSymmetryScore = count > 0 ? Math.round(avgMetrics.symmetryScore / count) : 0
+          const avgPosturalEfficiency = count > 0 ? Math.round(avgMetrics.posturalEfficiency / count) : 0
+
+          // Send pose data for movement analysis
           const response = await fetch('/api/ai/analyze-movement', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              frames: frames.map(f => ({
-                imageBase64: f.imageBase64,
-                timestamp: f.timestamp,
-                sequenceNumber: f.sequenceNumber,
+              poseData: poseDataArray.map(p => ({
+                timestamp: p.timestamp,
+                sequenceNumber: p.sequenceNumber,
+                keypoints: p.keypoints,
+                angles: p.angles,
+                metrics: p.metrics,
               })),
               participantName: displayName,
               participantId,
@@ -720,21 +932,16 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   pelvic_sway: data.analysis.postureMetrics.pelvicSway,
                   additional_metrics: data.analysis.postureMetrics.additionalMetrics,
                 } : undefined,
+                movement_quality: data.analysis.movementQuality,
+                movement_patterns: data.analysis.movementPatterns,
+                movement_consistency: data.analysis.movementConsistency,
+                dynamic_stability: data.analysis.dynamicStability,
               }
               
               // Update local metrics state immediately for instant display (even if DB save fails)
               setMetrics((prev) => {
                 const updated = [...prev, newMetric]
-                // Save to localStorage for instant display on next load
-                try {
-                  const storageKey = `ai-metrics-${currentSessionId}`
-                  localStorage.setItem(storageKey, JSON.stringify({
-                    metrics: updated,
-                    lastUpdated: new Date().toISOString(),
-                  }))
-                } catch (storageError) {
-                  console.error('[AI Insights] Error saving metrics to localStorage:', storageError)
-                }
+                // Don't save to localStorage - we fetch fresh data from API every 2 seconds
                 return updated
               })
               
@@ -747,7 +954,17 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               // This is done asynchronously - metrics are already displayed locally
               if (currentSessionId) {
                 try {
-                  console.log(`[AI Insights] Attempting to save metric for sessionId: ${currentSessionId}, participantId: ${metricParticipantId} (LiveKit: ${participantId})`)
+                  const metricTimestamp = data.analysis.timestamp || new Date().toISOString()
+                  console.log(`[AI Insights] 💾 Attempting to save metric to DynamoDB:`, {
+                    sessionId: currentSessionId,
+                    participantId: metricParticipantId,
+                    participantName: displayName,
+                    timestamp: metricTimestamp,
+                    balance: data.analysis.balanceScore || 0,
+                    symmetry: data.analysis.symmetryScore || 0,
+                    postural: data.analysis.posturalEfficiency,
+                  })
+                  
                   const saveResponse = await fetch('/api/ai-insights/save-metric', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -760,7 +977,11 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                       posturalEfficiency: data.analysis.posturalEfficiency,
                       riskLevel: data.analysis.riskLevel,
                       postureMetrics: data.analysis.postureMetrics,
-                      timestamp: data.analysis.timestamp || new Date().toISOString(),
+                      movementQuality: data.analysis.movementQuality,
+                      movementPatterns: data.analysis.movementPatterns,
+                      movementConsistency: data.analysis.movementConsistency,
+                      dynamicStability: data.analysis.dynamicStability,
+                      timestamp: metricTimestamp,
                     }),
                   })
                   
@@ -849,9 +1070,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                 console.warn(`[AI Insights] Cannot save insight - sessionId is missing`)
               }
 
-              // Clear frame buffer after successful analysis
-              framesBufferRef.current.set(participantId, [])
-              console.log(`[AI Insights] Cleared frame buffer for ${participantId} after successful analysis`)
+              // Clear pose data buffer after successful analysis
+              poseDataBufferRef.current.set(participantId, [])
+              console.log(`[AI Insights] Cleared pose data buffer for ${participantId} after successful analysis`)
             } else {
               console.warn(`[AI Insights] Analysis response missing analysis data for ${participantId}`)
             }
@@ -869,22 +1090,30 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       console.log(`[AI Insights] Movement analysis cycle complete at ${new Date().toISOString()}`)
     }
 
-    // Collect frames every 3 seconds
-    console.log('[AI Insights] Setting up frame collection interval (3 seconds)')
-    collectFrame() // Collect first frame immediately
-    frameCollectionIntervalRef.current = setInterval(collectFrame, 3000)
+    // Process pose detection every 3 seconds (further reduced to prevent browser hangs)
+    // Delay initial processing significantly to avoid blocking the UI
+    console.log('[AI Insights] Setting up pose detection interval (3 seconds)')
+    setTimeout(() => {
+      processPoseDetection() // Process first frame after a delay
+    }, 5000) // Wait 5 seconds before starting to let page fully load
+    frameCollectionIntervalRef.current = setInterval(processPoseDetection, 3000) // Every 3 seconds to reduce load
 
-    // Analyze collected frames every 30 seconds
-    // Start analysis after 30 seconds (to collect 10 frames first), then repeat every 30 seconds
-    console.log('[AI Insights] Setting up movement analysis interval (30 seconds) - will start after 30 seconds')
+    // Analyze collected pose data every 10 seconds
+    // Start analysis after 10 seconds (to collect 10 poses first), then repeat every 10 seconds
+    console.log('[AI Insights] Setting up movement analysis interval (10 seconds) - will start after 10 seconds')
     
-    // First analysis after 30 seconds
-    firstAnalysisTimeoutRef.current = setTimeout(() => {
-      console.log('[AI Insights] Running first analysis after 30 seconds')
-      analyzeMovementSequence()
-      // Then set up recurring interval
-      analysisIntervalRef.current = setInterval(analyzeMovementSequence, 30000)
-    }, 30000)
+        // First analysis after 10 seconds
+        firstAnalysisTimeoutRef.current = setTimeout(() => {
+          console.log('[AI Insights] ⏰ Running first analysis after 10 seconds')
+          console.log('[AI Insights] 📊 Pose data buffers:', Array.from(poseDataBufferRef.current.entries()).map(([id, poses]) => ({ id, count: poses.length })))
+          analyzeMovementSequence()
+          // Then set up recurring interval
+          analysisIntervalRef.current = setInterval(() => {
+            console.log('[AI Insights] ⏰ Recurring analysis triggered (every 10 seconds)')
+            console.log('[AI Insights] 📊 Pose data buffers:', Array.from(poseDataBufferRef.current.entries()).map(([id, poses]) => ({ id, count: poses.length })))
+            analyzeMovementSequence()
+          }, 10000)
+        }, 10000)
 
     // Mark setup as complete
     setupCompleteRef.current = true
@@ -904,8 +1133,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         clearTimeout(firstAnalysisTimeoutRef.current)
         firstAnalysisTimeoutRef.current = null
       }
-      // Clear frame buffers on cleanup
-      framesBufferRef.current.clear()
+      // Clear pose data buffers on cleanup
+      poseDataBufferRef.current.clear()
+      // Clean up pose detectors (MediaPipe Pose doesn't need explicit cleanup)
+      poseDetectorsRef.current.clear()
       // Reset setup flag so it can be set up again if needed
       setupCompleteRef.current = false
     }
@@ -1170,8 +1401,6 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Hidden canvas for frame capture */}
-      <canvas ref={canvasRef} className="hidden" />
       
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <div className="p-4 pb-2 flex-shrink-0">
@@ -1190,17 +1419,29 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               <TabsTrigger value="insights">AI Insights</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="metrics" className="mt-4 flex-1 overflow-y-auto scrollbar-hide min-w-0">
-              <div className="space-y-4">
-              {isLoadingInsights ? (
-                <div className="text-sm text-muted-foreground text-center py-8">
-                  <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50 animate-pulse" />
-                  <p>Loading metrics...</p>
-                </div>
-              ) : (() => {
-                // Show metrics
-                if (Object.keys(latestMetrics).length > 0) {
-                  const metricsByParticipant = Object.entries(latestMetrics).reduce((acc, [pid, metric]) => {
+            <TabsContent value="metrics" className="mt-4 flex-1 flex flex-col min-w-0" style={{ minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: '1 1 auto' }}>
+              <div key={`metrics-${metricsUpdateKey}-${metricsTimestamp}`} className="space-y-4 pr-2" style={{ overflowY: 'auto', overflowX: 'auto', flex: '1 1 auto', minHeight: 0, maxHeight: '100%' }}>
+              {(() => {
+                // Log render to debug
+                const renderKey = `${metricsUpdateKey}-${metricsTimestamp}`
+                console.log(`[AI Insights] 🎨 RENDERING metrics tab - key: ${renderKey}, latestMetrics count: ${Object.keys(latestMetrics).length}, isLoading: ${isLoadingInsights}`)
+                
+                if (isLoadingInsights) {
+                  return (
+                    <div className="text-sm text-muted-foreground text-center py-8">
+                      <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50 animate-pulse" />
+                      <p>Loading metrics...</p>
+                    </div>
+                  )
+                }
+                
+                // Show metrics - use latestMetrics directly
+                // Create a fresh copy to ensure React detects the change
+                const currentMetrics = { ...latestMetrics }
+                console.log(`[AI Insights] 📊 Rendering with ${Object.keys(currentMetrics).length} participants`)
+                
+                if (Object.keys(currentMetrics).length > 0) {
+                  const metricsByParticipant = Object.entries(currentMetrics).reduce((acc, [pid, metric]) => {
                     // Filter out coach if needed
                     if (sessionOwnerId && pid === sessionOwnerId && sessionType !== 'mocap') {
                       return acc
@@ -1219,7 +1460,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                       <div className="text-sm text-muted-foreground text-center py-8">
                         <Lightbulb className="h-8 w-8 mx-auto mb-2 opacity-50" />
                         <p>Metrics will appear here as participants move</p>
-                        <p className="text-xs mt-2">Metrics are collected every 30 seconds</p>
+                        <p className="text-xs mt-2">Metrics are collected every 10 seconds</p>
                       </div>
                     )
                   }
@@ -1228,10 +1469,25 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   const renderMetricsCard = (participantId: string, participantMetrics: AIMetric[]) => {
                     const latestMetric = participantMetrics[participantMetrics.length - 1]
                     const participantName = latestMetric.participant_name
+                    
+                    // CRITICAL: Log what we're about to render
+                    console.log(`[AI Insights] 🎯 RENDERING CARD for ${participantName}:`, {
+                      balance: latestMetric.balance_score,
+                      symmetry: latestMetric.symmetry_score,
+                      postural: latestMetric.postural_efficiency,
+                      timestamp: latestMetric.timestamp,
+                      updateKey: metricsUpdateKey,
+                      renderTimestamp: metricsTimestamp,
+                    })
+                    
+                    // Include all changing values in key to force re-render when metrics update
+                    // Add metricsUpdateKey and timestamp to ensure unique key on every update
+                    const metricKey = `${participantId}-${latestMetric.timestamp}-${latestMetric.balance_score}-${latestMetric.symmetry_score}-${latestMetric.postural_efficiency || 0}-${metricsUpdateKey}-${metricsTimestamp}`
+                    console.log(`[AI Insights] 🔑 Card key: ${metricKey}`)
 
                     return (
-                      <Card className="p-5 min-w-0 bg-card border-border">
-                        <div className="space-y-5 min-w-0">
+                      <Card key={metricKey} className="p-5 min-w-0 bg-card border-border" style={{ overflowX: 'auto' }}>
+                        <div className="space-y-5 min-w-0" style={{ minWidth: 'max-content' }}>
                           <div className="flex items-center gap-2 mb-3 min-w-0">
                             <h4 className="font-bold text-lg text-foreground truncate min-w-0">Real-time Metrics – {participantName}</h4>
                           </div>
@@ -1239,19 +1495,31 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                           {/* Scores */}
                           <div className="space-y-3">
                             <h5 className="font-bold text-base text-foreground">Scores</h5>
-                            <div className="flex flex-wrap gap-6">
-                              <div className="flex flex-col">
+                            <div className="flex flex-wrap gap-6 overflow-x-auto">
+                              <div className="flex flex-col" key={`balance-${latestMetric.balance_score}-${metricsUpdateKey}`}>
                                 <span className="text-sm text-muted-foreground mb-1">Balance Score</span>
                                 <span className="text-2xl font-bold text-foreground">{latestMetric.balance_score}</span>
                               </div>
-                              <div className="flex flex-col">
+                              <div className="flex flex-col" key={`symmetry-${latestMetric.symmetry_score}-${metricsUpdateKey}`}>
                                 <span className="text-sm text-muted-foreground mb-1">Symmetry</span>
                                 <span className="text-2xl font-bold text-foreground">{latestMetric.symmetry_score}</span>
                               </div>
                               {latestMetric.postural_efficiency && (
-                                <div className="flex flex-col">
+                                <div className="flex flex-col" key={`postural-${latestMetric.postural_efficiency}-${metricsUpdateKey}`}>
                                   <span className="text-sm text-muted-foreground mb-1">Postural Efficiency</span>
                                   <span className="text-2xl font-bold text-foreground">{latestMetric.postural_efficiency}</span>
+                                </div>
+                              )}
+                              {latestMetric.movement_consistency !== undefined && (
+                                <div className="flex flex-col">
+                                  <span className="text-sm text-muted-foreground mb-1">Movement Consistency</span>
+                                  <span className="text-2xl font-bold text-foreground">{latestMetric.movement_consistency}</span>
+                                </div>
+                              )}
+                              {latestMetric.dynamic_stability !== undefined && (
+                                <div className="flex flex-col">
+                                  <span className="text-sm text-muted-foreground mb-1">Dynamic Stability</span>
+                                  <span className="text-2xl font-bold text-foreground">{latestMetric.dynamic_stability}</span>
                                 </div>
                               )}
                             </div>
@@ -1272,6 +1540,40 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                               </div>
                             </div>
                           )}
+
+                          {/* Movement Metrics */}
+                          <div className="space-y-3 min-w-0">
+                            <h5 className="font-bold text-base text-foreground">Movement Metrics</h5>
+                            
+                            {/* Movement Quality */}
+                            {latestMetric.movement_quality && (
+                              <div className="space-y-2">
+                                <p className="break-words overflow-wrap-anywhere text-foreground">
+                                  <span className="font-semibold text-foreground">Movement Quality:</span> <span className="text-muted-foreground">{latestMetric.movement_quality}</span>
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Movement Patterns */}
+                            {latestMetric.movement_patterns && Array.isArray(latestMetric.movement_patterns) && latestMetric.movement_patterns.length > 0 && (
+                              <div className="space-y-2 min-w-0">
+                                <p className="text-sm font-semibold text-foreground">Movement Patterns:</p>
+                                <ul className="space-y-1.5 text-sm text-muted-foreground">
+                                  {latestMetric.movement_patterns.map((pattern, idx) => (
+                                    <li key={idx} className="flex items-start gap-2 min-w-0">
+                                      <span className="text-primary mt-0.5 shrink-0">•</span>
+                                      <span className="break-words overflow-wrap-anywhere">{pattern}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Show message if no movement metrics available yet */}
+                            {!latestMetric.movement_quality && (!latestMetric.movement_patterns || !Array.isArray(latestMetric.movement_patterns) || latestMetric.movement_patterns.length === 0) && (
+                              <p className="text-sm text-muted-foreground italic">Movement metrics will appear after analyzing movement sequences (typically after 10 seconds of video)</p>
+                            )}
+                          </div>
 
                           {/* Posture Metrics */}
                           {latestMetric.posture_metrics && (
@@ -1362,7 +1664,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               </div>
             </TabsContent>
             
-            <TabsContent value="insights" className="mt-4 flex-1 overflow-y-auto scrollbar-hide min-w-0">
+            <TabsContent value="insights" className="mt-4 flex-1 overflow-y-auto overflow-x-auto scrollbar-hide min-w-0">
               <div className="space-y-4">
               {(() => {
                 // Helper functions for insight display
@@ -1390,7 +1692,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   return (
                     <div className="space-y-4 min-w-0">
                       {/* Movement Quality & Patterns */}
-                      {(latestInsight.movementQuality || (latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0)) && (
+                      {(latestInsight.movementQuality || (latestInsight.movementPatterns && Array.isArray(latestInsight.movementPatterns) && latestInsight.movementPatterns.length > 0)) && (
                         <div className="space-y-2">
                           <h5 className="font-semibold text-sm">Movement Analysis</h5>
                           {latestInsight.movementQuality && (
@@ -1398,7 +1700,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                               <span className="font-medium">Movement Quality:</span> {latestInsight.movementQuality}
                             </p>
                           )}
-                          {latestInsight.movementPatterns && latestInsight.movementPatterns.length > 0 && (
+                          {latestInsight.movementPatterns && Array.isArray(latestInsight.movementPatterns) && latestInsight.movementPatterns.length > 0 && (
                             <div className="space-y-1 min-w-0">
                               <p className="text-sm font-medium text-muted-foreground">Movement Patterns:</p>
                               <ul className="space-y-1 text-sm text-muted-foreground">
@@ -1578,7 +1880,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                             const participantName = latestInsight.participantName
 
                             return (
-                              <Card key={participantId} className="p-4 min-w-0">
+                              <Card key={participantId} className="p-4 min-w-0 overflow-x-auto">
                                 <div className="space-y-4 min-w-0">
                                   <div className="flex items-center gap-2 mb-2 min-w-0">
                                     <Lightbulb className="h-4 w-4 text-yellow-500 shrink-0" />
@@ -1606,7 +1908,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                                   </div>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                  <Card className="p-4 min-w-0">
+                                  <Card className="p-4 min-w-0 overflow-x-auto">
                                     {renderInsightCard(participantId, participantInsights)}
                                   </Card>
                                 </AccordionContent>
