@@ -6,11 +6,9 @@
   NODE_VERSION = "20"
 
 # Netlify Functions configuration
-# Increase timeout for PDF generation (max 50s for Enterprise, 26s for Pro, 10s for free)
-[[functions]]
-  directory = ".next/server/app/api"
-  included_files = ["**/*.js", "**/*.ts"]
-  node_bundler = "esbuild"
+# Note: Next.js automatically handles API routes as Netlify Functions
+# If you need to configure function timeouts, do it per-function in the Netlify dashboard
+# or use netlify.toml with [functions] (not [[functions]])
 
 # Note: If secret scanning fails, you may need to disable it in Netlify Dashboard:
 # Site settings → Build & deploy → Environment → Secret scanning
