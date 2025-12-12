@@ -54,3 +54,6 @@ The file should be approximately **13 MB** (not 9 bytes or 29 bytes).
 
 Once the model is in place, restart your Next.js dev server and the pose detection should work!
 
+
+
+

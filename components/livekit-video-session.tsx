@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, ChevronLeft, ChevronRight, Phone, Grid3x3, User, LayoutGrid, XCircle, Loader2 } from "lucide-react"
@@ -31,6 +31,7 @@ import { Track, TrackPublication } from "livekit-client"
 import MetricsDashboard from "./metrics-dashboard"
 import { useV2 } from "@/lib/v2-context"
 import { AIInsightsPanel } from "./ai-insights-panel"
+import { ChatPanel } from "./chat-panel"
 // import { CustomVideoControls } from "./custom-video-controls" // Custom controls - commented out for testing LiveKit standard controls
 
 type LayoutMode = 'default' | 'grid' | 'spotlight' | 'one-on-one'
@@ -48,6 +49,8 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(true)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [panelWidth, setPanelWidth] = useState(40) // Percentage of screen width (0-100)
+  const [isResizing, setIsResizing] = useState(false)
   const [participantNotes, setParticipantNotes] = useState<{ [key: string]: string }>({})
   const { v2Enabled } = useV2()
   const [sessionDuration, setSessionDuration] = useState(0)
@@ -97,6 +100,56 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
     return () => clearInterval(interval)
   }, [token])
 
+  // Handle panel resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return
+
+    const windowWidth = window.innerWidth
+    const newWidth = ((windowWidth - e.clientX) / windowWidth) * 100
+
+    // Constrain: min 0% (fully closed), max 50% (half screen)
+    const constrainedWidth = Math.max(0, Math.min(50, newWidth))
+    setPanelWidth(constrainedWidth)
+    
+    // Update isPanelOpen based on width
+    setIsPanelOpen(constrainedWidth > 0)
+  }, [isResizing])
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false)
+  }, [])
+
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizing, handleMouseMove, handleMouseUp])
+
+  // Sync isPanelOpen with panelWidth
+  useEffect(() => {
+    setIsPanelOpen(panelWidth > 0)
+  }, [panelWidth])
+
   const formatDuration = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600)
     const mins = Math.floor((seconds % 3600) / 60)
@@ -131,11 +184,16 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
       token={token}
       serverUrl={livekitUrl}
       connect={true}
-      className="relative w-full h-full bg-black overflow-hidden flex"
+      className="relative w-full h-full bg-[#0a0a0a] overflow-hidden flex"
     >
       <RoomContent
         isPanelOpen={isPanelOpen}
         setIsPanelOpen={setIsPanelOpen}
+        panelWidth={panelWidth}
+        setPanelWidth={setPanelWidth}
+        isResizing={isResizing}
+        setIsResizing={setIsResizing}
+        handleMouseDown={handleMouseDown}
         participantNotes={participantNotes}
         setParticipantNotes={setParticipantNotes}
         handleAddNote={handleAddNote}
@@ -154,6 +212,11 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
 function RoomContent({
   isPanelOpen,
   setIsPanelOpen,
+  panelWidth,
+  setPanelWidth,
+  isResizing,
+  setIsResizing,
+  handleMouseDown,
   participantNotes,
   setParticipantNotes,
   handleAddNote,
@@ -166,6 +229,11 @@ function RoomContent({
 }: {
   isPanelOpen: boolean
   setIsPanelOpen: (open: boolean) => void
+  panelWidth: number
+  setPanelWidth: (width: number) => void
+  isResizing: boolean
+  setIsResizing: (resizing: boolean) => void
+  handleMouseDown: (e: React.MouseEvent) => void
   participantNotes: { [key: string]: string }
   setParticipantNotes: (notes: { [key: string]: string }) => void
   handleAddNote: (id: string) => void
@@ -761,11 +829,11 @@ function RoomContent({
       return (
         <div
           key={participant.identity}
-          className="relative bg-black rounded-lg overflow-hidden w-full h-full"
+          className="relative bg-slate-800 rounded-xl overflow-hidden w-full h-full shadow-lg"
         >
           {trackRef ? (
             <TrackRefContext.Provider value={trackRef}>
-              <VideoTrack trackRef={trackRef} className="w-full h-full" />
+              <VideoTrack trackRef={trackRef} className="w-full h-full rounded-xl" />
             </TrackRefContext.Provider>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-900">
@@ -786,17 +854,17 @@ function RoomContent({
       return (
         <div
           key={participant.identity}
-          className="relative bg-black rounded-lg overflow-hidden w-full h-full"
+          className="relative bg-slate-800 rounded-xl overflow-hidden w-full h-full shadow-lg"
           style={{ width: '100%', height: '100%', minWidth: 0, maxWidth: '100%' }}
         >
           {/* Video section - fills available space */}
           <div className="relative w-full h-full">
             {trackRef ? (
               <TrackRefContext.Provider value={trackRef}>
-                <VideoTrack trackRef={trackRef} className="w-full h-full" style={{ width: '100%', height: '100%' }} />
+                <VideoTrack trackRef={trackRef} className="w-full h-full rounded-xl" style={{ width: '100%', height: '100%' }} />
               </TrackRefContext.Provider>
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gray-900">
+              <div className="w-full h-full flex items-center justify-center bg-slate-700/50 rounded-xl">
                 <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
                   <span className="text-2xl font-medium text-white">
                     {firstLetter}
@@ -857,10 +925,14 @@ function RoomContent({
                   display: grid;
                   grid-template-columns: repeat(1, 1fr);
                   gap: 0.5rem;
+                  place-items: center;
+                  justify-content: center;
                 }
                 @media (min-width: 768px) {
                   .grid-layout-mobile-stack {
-                    grid-template-columns: repeat(${gridCols}, 1fr) !important;
+                    grid-template-columns: repeat(${gridCols}, minmax(0, 1fr)) !important;
+                    place-items: center;
+                    justify-content: center;
                   }
                 }
               `
@@ -871,10 +943,11 @@ function RoomContent({
             {participants.map((participant) => (
                 <div 
                   key={participant.identity} 
-                  className="w-full"
+                  className="w-full max-w-full"
                   style={{
                     aspectRatio: '16/9',
                     minWidth: 0,
+                    maxWidth: '100%',
                   }}
                 >
                   {renderParticipantTile(participant, false)}
@@ -1080,10 +1153,14 @@ function RoomContent({
                   display: grid;
                   grid-template-columns: repeat(1, 1fr);
                   gap: 0.5rem;
+                  place-items: center;
+                  justify-content: center;
                 }
                 @media (min-width: 768px) {
                   .grid-layout-mobile-stack-default {
-                    grid-template-columns: repeat(${gridColsDefault}, 1fr) !important;
+                    grid-template-columns: repeat(${gridColsDefault}, minmax(0, 1fr)) !important;
+                    place-items: center;
+                    justify-content: center;
                   }
                 }
               `
@@ -1094,10 +1171,11 @@ function RoomContent({
               {participants.map((participant) => (
                 <div 
                   key={participant.identity} 
-                  className="w-full"
+                  className="w-full max-w-full"
                   style={{
                     aspectRatio: '16/9',
                     minWidth: 0,
+                    maxWidth: '100%',
                   }}
                 >
                   {renderParticipantTile(participant, false)}
@@ -1112,12 +1190,14 @@ function RoomContent({
   return (
     <div className="relative w-full h-full flex overflow-hidden">
       <div
-        className={`relative h-full flex flex-col transition-all duration-300 ease-in-out ${
-          isPanelOpen ? "md:flex-[0_0_60%] w-full" : "w-full flex-1"
-        }`}
+        className="relative h-full flex flex-col transition-all duration-300 ease-in-out"
+        style={{
+          width: isPanelOpen ? `${100 - panelWidth}%` : '100%',
+          flex: isPanelOpen ? '0 0 auto' : '1 1 auto'
+        }}
       >
         {/* Main video area - Dynamic layout based on layoutMode */}
-        <div className="h-full min-h-0 relative overflow-hidden bg-black" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="h-full min-h-0 relative overflow-hidden bg-[#0a0a0a] flex items-center justify-center" style={{ display: 'flex', flexDirection: 'column' }}>
           {renderLayout()}
         </div>
 
@@ -1246,20 +1326,45 @@ function RoomContent({
       <Button
         variant="secondary"
         size="icon"
-        className={`hidden md:flex absolute top-1/2 -translate-y-1/2 h-16 w-12 rounded-2xl shadow-lg z-20 transition-all duration-300 ${
-          isPanelOpen ? "right-[40%]" : "right-4"
-        }`}
-        onClick={() => setIsPanelOpen(!isPanelOpen)}
+        className="hidden md:flex absolute top-1/2 -translate-y-1/2 h-16 w-12 rounded-2xl shadow-lg z-20 transition-all duration-300"
+        style={{
+          right: isPanelOpen ? `${panelWidth}%` : '1rem',
+          transform: isPanelOpen ? 'translateX(50%) translateY(-50%)' : 'translateY(-50%)'
+        }}
+        onClick={() => {
+          if (isPanelOpen) {
+            setPanelWidth(0)
+            setIsPanelOpen(false)
+          } else {
+            setPanelWidth(40)
+            setIsPanelOpen(true)
+          }
+        }}
       >
         {isPanelOpen ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
       </Button>
 
       <div
-        className={`hidden md:flex h-full border-l bg-background flex-col transition-all duration-300 ease-in-out overflow-hidden ${
-          isPanelOpen ? "flex-[1_1_0%] min-w-[500px]" : "w-0 min-w-0 border-0 flex-shrink-0"
-        }`}
+        className="hidden md:flex h-full border-l bg-background flex-col transition-all duration-300 ease-in-out overflow-hidden relative"
+        style={{
+          width: isPanelOpen ? `${panelWidth}%` : '0',
+          minWidth: isPanelOpen ? '0' : '0',
+          borderLeftWidth: isPanelOpen ? '1px' : '0'
+        }}
       >
-        <Tabs defaultValue="session" className="flex-1 flex flex-col h-full">
+        {/* Resize handle */}
+        {isPanelOpen && (
+          <div
+            className="absolute left-0 top-0 bottom-0 w-2 bg-transparent hover:bg-primary/30 cursor-col-resize z-30 transition-colors group"
+            onMouseDown={handleMouseDown}
+            style={{
+              cursor: 'col-resize'
+            }}
+          >
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-0.5 h-16 bg-primary/0 group-hover:bg-primary/60 rounded-full transition-colors" />
+          </div>
+        )}
+        <Tabs defaultValue="participants" className="flex-1 flex flex-col h-full">
           <div className="border-b">
             <TabsList className="w-full rounded-none border-0">
               {v2Enabled && (
@@ -1267,13 +1372,16 @@ function RoomContent({
                   Live Metrics
                 </TabsTrigger>
               )}
-              <TabsTrigger value="session" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
-                Session
+              <TabsTrigger value="participants" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
+                Participants
               </TabsTrigger>
-              {/* Only show AI Insights tab to coaches */}
+              <TabsTrigger value="chat" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
+                Chat
+              </TabsTrigger>
+              {/* Only show Insights tab to coaches */}
               {localParticipant?.identity === sessionOwnerId && (
-                <TabsTrigger value="ai-insights" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
-                  AI Insights
+                <TabsTrigger value="insights" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
+                  Insights
                 </TabsTrigger>
               )}
             </TabsList>
@@ -1289,7 +1397,7 @@ function RoomContent({
           )}
 
           <TabsContent
-            value="session"
+            value="participants"
             className="flex-1 p-4 space-y-4 overflow-y-auto scrollbar-hide mt-0 h-[calc(100vh-120px)] flex flex-col"
           >
             {/* Session Name */}
@@ -1447,10 +1555,23 @@ function RoomContent({
             )}
           </TabsContent>
 
-          {/* Only show AI Insights tab content to coaches */}
+          {/* Chat Tab */}
+          <TabsContent
+            value="chat"
+            className="flex-1 overflow-hidden mt-0 p-0 h-full"
+          >
+            <ChatPanel
+              sessionId={sessionId}
+              sessionOwnerId={sessionOwnerId}
+              participantInfo={participantInfo}
+              localParticipantId={localParticipant?.identity}
+            />
+          </TabsContent>
+
+          {/* Only show Insights tab content to coaches */}
           {localParticipant?.identity === sessionOwnerId && (
             <TabsContent
-              value="ai-insights"
+              value="insights"
               className="flex-1 overflow-hidden mt-0 p-0 h-full"
             >
               <AIInsightsPanel
