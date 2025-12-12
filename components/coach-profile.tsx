@@ -10,6 +10,22 @@ import { useV2 } from "@/lib/v2-context"
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 
+// Generate placeholder avatar URL for coaches
+const getPlaceholderAvatar = (name: string): string => {
+  // Use UI Avatars service to generate a placeholder with initials
+  // Coaches use a professional blue color
+  const initials = name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2)
+  
+  // UI Avatars service - generates a nice avatar with initials
+  // Using a professional blue color for coaches
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=1E40AF&color=fff&size=128&bold=true&font-size=0.5`
+}
+
 export default function CoachProfile() {
   const { v2Enabled } = useV2()
   const { data: session } = useSession()
@@ -196,7 +212,10 @@ export default function CoachProfile() {
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-6">
                   <Avatar className="size-24">
-                    <AvatarImage src="/placeholder.svg?height=96&width=96" alt={coachData.name} />
+                    <AvatarImage 
+                      src={coachData.avatar || getPlaceholderAvatar(coachData.name)} 
+                      alt={coachData.name} 
+                    />
                     <AvatarFallback className="text-2xl font-semibold">{coachData.initials}</AvatarFallback>
                   </Avatar>
                   <div>

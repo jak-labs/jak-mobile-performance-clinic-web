@@ -9,6 +9,32 @@ import { Plus, Search } from "lucide-react"
 import { useState, useEffect } from "react"
 import AddClientPanel from "@/components/add-client-panel"
 
+// Generate placeholder avatar URL for athletes
+const getPlaceholderAvatar = (name: string, clientType?: string): string => {
+  // Use UI Avatars service to generate a placeholder with initials
+  // Colors can vary based on client type for visual distinction
+  const colors: Record<string, string> = {
+    'pro-athlete': '4F46E5', // Indigo
+    'youth-athlete': '10B981', // Green
+    'rehab-athlete': 'F59E0B', // Amber
+    'recreational-active-adult': '3B82F6', // Blue
+    'rehab-patient': 'EF4444', // Red
+    'corporate-worker': '6366F1', // Indigo
+    'industrial-worker': '8B5CF6', // Purple
+  }
+  
+  const bgColor = clientType && colors[clientType] ? colors[clientType] : '6366F1' // Default indigo
+  const initials = name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2)
+  
+  // UI Avatars service - generates a nice avatar with initials
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${bgColor}&color=fff&size=128&bold=true&font-size=0.5`
+}
+
 interface Subject {
   id: string
   name: string
@@ -291,7 +317,10 @@ export default function SubjectsList() {
                           }`}>
                             <div className="flex items-start gap-4">
                               <Avatar className="h-16 w-16">
-                                <AvatarImage src={subject.avatar || "/placeholder.svg"} alt={subject.name} />
+                                <AvatarImage 
+                                  src={subject.avatar || getPlaceholderAvatar(subject.name, subject.sport)} 
+                                  alt={subject.name} 
+                                />
                                 <AvatarFallback className="text-lg font-semibold">
                                   {subject.name
                                     .split(" ")
@@ -338,7 +367,10 @@ export default function SubjectsList() {
                         <Card key={subject.id} className="p-6 border-border/50 bg-card">
                           <div className="flex items-start gap-4">
                             <Avatar className="h-16 w-16">
-                              <AvatarImage src={subject.avatar || "/placeholder.svg"} alt={subject.name} />
+                              <AvatarImage 
+                                src={subject.avatar || getPlaceholderAvatar(subject.name, subject.sport)} 
+                                alt={subject.name} 
+                              />
                               <AvatarFallback className="text-lg font-semibold">
                                 {subject.name
                                   .split(" ")

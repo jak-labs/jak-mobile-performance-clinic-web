@@ -172,42 +172,19 @@ export default function AddClientForm({ onClientAdded, onSuccess }: AddClientFor
             </div>
 
             <div className="space-y-2 w-full">
-              <Label htmlFor="sportType">Sport Type</Label>
+              <Label htmlFor="sportType">Client Type</Label>
               <Select value={formData.sportType} onValueChange={(value) => handleInputChange("sportType", value)}>
                 <SelectTrigger id="sportType" className="!w-full">
-                  <SelectValue placeholder="Select a sport" />
+                  <SelectValue placeholder="Select a client type" />
                 </SelectTrigger>
                 <SelectContent className="!z-[200]" position="popper" style={{ zIndex: 200 }}>
-                  <SelectItem value="basketball">Basketball</SelectItem>
-                  <SelectItem value="football">Football</SelectItem>
-                  <SelectItem value="soccer">Soccer</SelectItem>
-                  <SelectItem value="baseball">Baseball</SelectItem>
-                  <SelectItem value="tennis">Tennis</SelectItem>
-                  <SelectItem value="golf">Golf</SelectItem>
-                  <SelectItem value="swimming">Swimming</SelectItem>
-                  <SelectItem value="track-field">Track & Field</SelectItem>
-                  <SelectItem value="volleyball">Volleyball</SelectItem>
-                  <SelectItem value="hockey">Hockey</SelectItem>
-                  <SelectItem value="lacrosse">Lacrosse</SelectItem>
-                  <SelectItem value="rugby">Rugby</SelectItem>
-                  <SelectItem value="wrestling">Wrestling</SelectItem>
-                  <SelectItem value="boxing">Boxing</SelectItem>
-                  <SelectItem value="mma">MMA</SelectItem>
-                  <SelectItem value="crossfit">CrossFit</SelectItem>
-                  <SelectItem value="powerlifting">Powerlifting</SelectItem>
-                  <SelectItem value="weightlifting">Weightlifting</SelectItem>
-                  <SelectItem value="cycling">Cycling</SelectItem>
-                  <SelectItem value="running">Running</SelectItem>
-                  <SelectItem value="triathlon">Triathlon</SelectItem>
-                  <SelectItem value="skiing">Skiing</SelectItem>
-                  <SelectItem value="snowboarding">Snowboarding</SelectItem>
-                  <SelectItem value="surfing">Surfing</SelectItem>
-                  <SelectItem value="skateboarding">Skateboarding</SelectItem>
-                  <SelectItem value="climbing">Climbing</SelectItem>
-                  <SelectItem value="gymnastics">Gymnastics</SelectItem>
-                  <SelectItem value="dance">Dance</SelectItem>
-                  <SelectItem value="martial-arts">Martial Arts</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="pro-athlete">Pro Athlete</SelectItem>
+                  <SelectItem value="youth-athlete">Youth Athlete</SelectItem>
+                  <SelectItem value="rehab-athlete">Rehab Athlete</SelectItem>
+                  <SelectItem value="recreational-active-adult">Recreational Active Adult</SelectItem>
+                  <SelectItem value="rehab-patient">Rehab Patient</SelectItem>
+                  <SelectItem value="corporate-worker">Corporate Worker</SelectItem>
+                  <SelectItem value="industrial-worker">Industrial Worker</SelectItem>
                 </SelectContent>
               </Select>
             </div>
