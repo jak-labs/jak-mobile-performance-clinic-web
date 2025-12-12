@@ -59,10 +59,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch all metrics for this session
-    console.log(`[API] Fetching all metrics for session ${sessionId}`);
+    // Fetch all SAVED metrics for this session from DynamoDB
+    // IMPORTANT: This endpoint uses SAVED METRICS, not image frames
+    console.log(`[API] Fetching all SAVED metrics from DynamoDB for session ${sessionId}`);
     const allMetrics = await getAllAIMetricsForSession(sessionId);
-    console.log(`[API] Found ${allMetrics.length} metrics for session ${sessionId}`);
+    console.log(`[API] Found ${allMetrics.length} SAVED metrics for session ${sessionId}`);
+    
+    if (allMetrics.length > 0) {
+      console.log(`[API] Sample metric structure:`, {
+        subject_id: allMetrics[0].subject_id,
+        timestamp: allMetrics[0].timestamp,
+        session_id: allMetrics[0].session_id,
+        participant_id: allMetrics[0].participant_id,
+        balance_score: allMetrics[0].balance_score,
+        symmetry_score: allMetrics[0].symmetry_score,
+      });
+    }
 
     if (allMetrics.length === 0) {
       return NextResponse.json(
@@ -145,7 +157,9 @@ export async function POST(req: NextRequest) {
       }));
 
       // Generate insight using LLM
-      const prompt = `You are an expert movement analyst and sports performance coach. Analyze the following collection of movement metrics from a coaching session and create a comprehensive insight report.
+      // IMPORTANT: We are sending SAVED METRICS DATA to the LLM, NOT image frames
+      // The metrics were previously collected from pose detection and saved to DynamoDB
+      const prompt = `You are an expert movement analyst and sports performance coach. Analyze the following collection of SAVED MOVEMENT METRICS from a coaching session (these metrics were collected from pose detection analysis and saved to the database) and create a comprehensive insight report.
 
 Participant: ${participantName}
 Total Metrics Analyzed: ${metrics.length}

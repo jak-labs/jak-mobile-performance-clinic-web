@@ -259,6 +259,7 @@ function RoomContent({
   const [expectedParticipants, setExpectedParticipants] = useState<Array<{ id: string; name: string; isConnected: boolean }>>([])
   const [isLoadingExpectedParticipants, setIsLoadingExpectedParticipants] = useState(true)
   const [isEndingSession, setIsEndingSession] = useState(false)
+  const [participantMetrics, setParticipantMetrics] = useState<Record<string, { balance: number; symmetry: number; postural: number }>>({})
   const room = useRoomContext()
   const localParticipant = room.localParticipant
   const remoteParticipants = Array.from(room.remoteParticipants.values())
@@ -811,11 +812,52 @@ function RoomContent({
     return `${participant.identity || 'Unknown'} (Participant)`
   }
 
+  // Fetch metrics for participants
+  useEffect(() => {
+    if (!sessionId) return
+
+    const fetchMetrics = async () => {
+      try {
+        const response = await fetch(`/api/ai-insights/metrics/${sessionId}`)
+        if (response.ok) {
+          const data = await response.json()
+          const metrics: Record<string, { balance: number; symmetry: number; postural: number }> = {}
+          
+          // Get latest metric per participant
+          const participantMap = new Map<string, any>()
+          data.metrics?.forEach((metric: any) => {
+            const pid = metric.participant_id || metric.subject_id
+            if (pid && (!participantMap.has(pid) || new Date(metric.timestamp) > new Date(participantMap.get(pid).timestamp))) {
+              participantMap.set(pid, metric)
+            }
+          })
+          
+          participantMap.forEach((metric, pid) => {
+            metrics[pid] = {
+              balance: metric.balance_score || 0,
+              symmetry: metric.symmetry_score || 0,
+              postural: metric.postural_efficiency || 0
+            }
+          })
+          
+          setParticipantMetrics(metrics)
+        }
+      } catch (error) {
+        console.error('[Video Session] Error fetching metrics:', error)
+      }
+    }
+
+    fetchMetrics()
+    const interval = setInterval(fetchMetrics, 2000) // Update every 2 seconds
+    return () => clearInterval(interval)
+  }, [sessionId])
+
   // Helper to render a participant video tile
   const renderParticipantTile = (participant: typeof participants[0], isLarge: boolean = false) => {
     const trackRef = getTrackForParticipant(participant.identity)
     const info = participantInfo[participant.identity]
     const displayName = formatParticipantName(info, participant)
+    const metrics = participantMetrics[participant.identity]
     
     // Get first letter for avatar
     const firstName = info?.firstName || ''
@@ -844,6 +886,21 @@ function RoomContent({
               </div>
             </div>
           )}
+          {/* Metrics overlay - top right */}
+          {metrics && (metrics.balance > 0 || metrics.symmetry > 0 || metrics.postural > 0) && (
+            <div className="absolute top-2 right-2 bg-black/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-white/20">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-white/70">Balance</span>
+                  <span className="text-xs font-bold text-white">{Math.round(metrics.balance)}%</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-white/70">Symmetry</span>
+                  <span className="text-xs font-bold text-white">{Math.round(metrics.symmetry)}%</span>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-xs md:text-sm">
             <p className="font-medium text-white">{displayName}</p>
           </div>
@@ -869,6 +926,21 @@ function RoomContent({
                   <span className="text-2xl font-medium text-white">
                     {firstLetter}
                   </span>
+                </div>
+              </div>
+            )}
+            {/* Metrics overlay - top right */}
+            {metrics && (metrics.balance > 0 || metrics.symmetry > 0 || metrics.postural > 0) && (
+              <div className="absolute top-2 right-2 bg-black/80 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/20 z-10">
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-white/70">Balance</span>
+                    <span className="text-[10px] font-bold text-white">{Math.round(metrics.balance)}%</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-white/70">Symmetry</span>
+                    <span className="text-[10px] font-bold text-white">{Math.round(metrics.symmetry)}%</span>
+                  </div>
                 </div>
               </div>
             )}

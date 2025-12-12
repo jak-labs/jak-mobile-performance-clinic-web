@@ -69,10 +69,14 @@ export async function saveAIMetric(
 
   console.log('[DynamoDB] Attempting to save AI metric:', {
     tableName: AI_METRICS_TABLE,
-    subject_id: item.subject_id, // Partition key
-    timestamp: item.timestamp, // Sort key
+    subject_id: item.subject_id, // Partition key - use this exact value for querying
+    timestamp: item.timestamp, // Sort key - use range query (begins_with or between) for better results
     session_id: item.session_id,
     participant_id: item.participant_id,
+    // IMPORTANT: To query this metric in DynamoDB console:
+    // 1. Use subject_id (partition key) with EXACT match: '011b9530-4011-70f1-93c1-46d482f5f882'
+    // 2. Use timestamp (sort key) with RANGE query (begins_with '2025-12-12') or BETWEEN query
+    //    Do NOT use exact match on timestamp - use a range/prefix query instead
   });
 
   try {

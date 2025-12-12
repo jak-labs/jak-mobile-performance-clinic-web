@@ -100,6 +100,11 @@ export async function POST(req: NextRequest) {
       session_id: metricData.session_id,
       timestamp: metricData.timestamp,
       participant_id: metricData.participant_id,
+      subject_id: metricData.participant_id, // Partition key - use this exact value for querying
+      // Note: To query this metric in DynamoDB console:
+      // - Partition key (subject_id): Use exact match with the full participant_id
+      // - Sort key (timestamp): Use range query (begins_with '2025-12-12') or BETWEEN query, NOT exact match
+      //   Example: subject_id = '011b9530-4011-70f1-93c1-46d482f5f882' AND timestamp begins_with '2025-12-12'
     });
 
     await saveAIMetric(metricData);

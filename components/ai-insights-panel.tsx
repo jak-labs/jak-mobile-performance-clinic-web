@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Lightbulb, Download, Loader2, FileDown } from "lucide-react"
+import { Lightbulb, Loader2, FileDown } from "lucide-react"
 import { useRoomContext, useTracks } from "@livekit/components-react"
 import { DataPacket_Kind, Track, ConnectionState } from "livekit-client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -79,7 +79,8 @@ interface AIMetric {
 
 export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId, sessionType }: AIInsightsPanelProps) {
   const room = useRoomContext()
-  const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true })
+  // Get all camera tracks (both subscribed and unsubscribed to ensure we get all participants)
+  const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false })
   
   // Check if current user is the coach (session owner)
   const isCoach = room?.localParticipant?.identity === sessionOwnerId
@@ -180,54 +181,22 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     fetchSubjectName()
   }, [sessionId])
 
-  // Helper function to get localStorage key for this session
-  const getStorageKey = () => `ai-insights-${sessionId}`
-
-  // Helper function to save insights to localStorage
-  const saveInsightsToStorage = (insightsToSave: AIInsight[]) => {
-    if (!sessionId) return
-    try {
-      const storageKey = getStorageKey()
-      localStorage.setItem(storageKey, JSON.stringify({
-        insights: insightsToSave,
-        timestamp: new Date().toISOString(),
-      }))
-      console.log(`[AI Insights] Saved ${insightsToSave.length} insights to localStorage`)
-    } catch (error) {
-      console.error('[AI Insights] Error saving to localStorage:', error)
-    }
-  }
-
-  // Helper function to load insights from localStorage
-  const loadInsightsFromStorage = (): AIInsight[] | null => {
-    if (!sessionId) return null
-    try {
-      const storageKey = getStorageKey()
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const data = JSON.parse(stored)
-        console.log(`[AI Insights] Loaded ${data.insights?.length || 0} insights from localStorage`)
-        return data.insights || null
-      }
-    } catch (error) {
-      console.error('[AI Insights] Error loading from localStorage:', error)
-    }
-    return null
-  }
+  // NO localStorage for insights - database is the ONLY source of truth
+  // All insights are fetched from DynamoDB every 15 seconds
 
   // Use refs for values that change frequently to avoid re-running useEffect
   const participantInfoRef = useRef(participantInfo)
   const subjectNameRef = useRef(subjectName)
   const sessionIdRef = useRef(sessionId)
-  const saveInsightsToStorageRef = useRef(saveInsightsToStorage)
+  // Removed saveInsightsToStorageRef - no longer using localStorage
 
   // Reset loaded flag when sessionId changes
   useEffect(() => {
     insightsLoadedRef.current = false
   }, [sessionId])
 
-  // Load insights from localStorage immediately on mount or sessionId change
-  // This ensures instant display when switching tabs
+  // NO localStorage for insights - database is the ONLY source of truth
+  // Insights are fetched from database every 15 seconds
   useEffect(() => {
     if (!sessionId) {
       setInsights([])
@@ -235,54 +204,15 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       return
     }
     
+    // Clear any old localStorage cache to prevent stale data
     try {
       const storageKey = `ai-insights-${sessionId}`
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const data = JSON.parse(stored)
-        const cachedInsights = data.insights || []
-        if (cachedInsights && cachedInsights.length > 0) {
-          console.log(`[AI Insights] Loading ${cachedInsights.length} cached insights from localStorage`)
-          setInsights(cachedInsights)
-          
-          // Also load showInsights flag
-          try {
-            const flagKey = `ai-insights-show-flag-${sessionId}`
-            const flagStored = localStorage.getItem(flagKey)
-            if (flagStored) {
-              const flagData = JSON.parse(flagStored)
-              setShowInsights(flagData.showInsights === true)
-            } else {
-              // If insights exist but no flag, assume they should be shown
-              setShowInsights(true)
-            }
-          } catch (flagError) {
-            console.error('[AI Insights] Error loading showInsights flag:', flagError)
-            // If insights exist, show them anyway
-            setShowInsights(true)
-          }
-          
-          // Don't set loading state - we have cached data to show
-          return
-        }
-      }
-      
-      // No cached insights - check if showInsights flag exists (shouldn't, but just in case)
-      try {
-        const flagKey = `ai-insights-show-flag-${sessionId}`
-        const flagStored = localStorage.getItem(flagKey)
-        if (flagStored) {
-          const flagData = JSON.parse(flagStored)
-          setShowInsights(flagData.showInsights === true)
-        }
-      } catch (flagError) {
-        // Ignore flag errors if no insights exist
-      }
+      localStorage.removeItem(storageKey)
+      console.log('[AI Insights] 🗑️ Cleared localStorage cache - database is the only source of truth')
     } catch (error) {
-      console.error('[AI Insights] Error loading from localStorage:', error)
+      // Ignore errors
     }
     
-    // Only show loading if we don't have cached data
     setIsLoadingInsights(true)
   }, [sessionId])
 
@@ -587,7 +517,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }
 
-  // Auto-generate insights every 30 seconds when metrics are available
+  // Auto-generate insights every 15 seconds when metrics are available
   useEffect(() => {
     if (!sessionId) return
 
@@ -598,7 +528,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       return
     }
 
-    console.log('[AI Insights] 🤖 Setting up automatic insight generation (every 30 seconds)')
+    console.log('[AI Insights] 🤖 Setting up automatic insight generation (every 15 seconds)')
     
     // Clear any existing interval
     if (insightsGenerationIntervalRef.current) {
@@ -606,7 +536,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       insightsGenerationIntervalRef.current = null
     }
 
-    // Generate insights immediately if we have metrics, then every 30 seconds
+    // Generate insights immediately if we have metrics, then every 15 seconds
     const generateInsights = async () => {
       if (!sessionId || isGenerating) {
         console.log('[AI Insights] ⏸️ Skipping insight generation - sessionId missing or already generating')
@@ -625,16 +555,16 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       await handleGenerateInsights()
     }
 
-    // Generate first insights after 30 seconds (to allow metrics to accumulate)
+    // Generate first insights after 15 seconds (to allow metrics to accumulate)
     const firstGenerationTimeout = setTimeout(() => {
       generateInsights()
       
       // Then set up recurring interval
       insightsGenerationIntervalRef.current = setInterval(() => {
-        console.log('[AI Insights] 🤖 Recurring auto-insight generation triggered (every 30 seconds)')
+        console.log('[AI Insights] 🤖 Recurring auto-insight generation triggered (every 15 seconds)')
         generateInsights()
-      }, 30000) // Every 30 seconds
-    }, 30000) // Start after 30 seconds
+      }, 15000) // Every 15 seconds
+    }, 15000) // Start after 15 seconds
 
     return () => {
       clearTimeout(firstGenerationTimeout)
@@ -721,10 +651,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }, [sessionId, room]) // Only depend on sessionId and room - don't re-run when metrics change
 
-  // Fetch saved AI insights from database when sessionId is available
-  // This runs in background and updates insights if database has newer/more data
+  // Fetch saved AI insights from database periodically
+  // This runs every 15 seconds to get the latest insights (especially after auto-generation)
   useEffect(() => {
-    if (!sessionId || insightsLoadedRef.current) return
+    if (!sessionId) return
 
     const fetchSavedInsights = async () => {
       try {
@@ -769,37 +699,38 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
             }
           })
           
-          // Always update with database insights (they're the source of truth)
-          // Merge with existing insights - keep the latest per participant
+          // Database is the ONLY source of truth - always use database insights
+          // NO localStorage, NO merging with prev state - just use what's in the database
           setInsights((prev) => {
-            // If we have database insights, use them (they're more complete)
             if (convertedInsights.length > 0) {
-              // Create a map of insights by participantId, prioritizing database insights
-              const insightMap = new Map<string, AIInsight>()
+              // Use ONLY database insights - no merging with prev state
+              const databaseInsights = convertedInsights
               
-              // First add database insights (source of truth)
-              convertedInsights.forEach(insight => {
-                insightMap.set(insight.participantId, insight)
-              })
+              // Sort by timestamp descending (newest first)
+              databaseInsights.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
               
-              // Then add any cached insights that aren't in database (in case of race condition)
-              prev.forEach(insight => {
-                if (!insightMap.has(insight.participantId)) {
-                  insightMap.set(insight.participantId, insight)
-                }
-              })
+              // Check if insights actually changed
+              const prevTimestamp = prev.length > 0 ? prev[0]?.timestamp : null
+              const newTimestamp = databaseInsights.length > 0 ? databaseInsights[0]?.timestamp : null
+              const prevContent = prev.length > 0 ? JSON.stringify(prev[0]) : null
+              const newContent = databaseInsights.length > 0 ? JSON.stringify(databaseInsights[0]) : null
+              const hasChanged = prevTimestamp !== newTimestamp || prevContent !== newContent || prev.length !== databaseInsights.length
               
-              const merged = Array.from(insightMap.values())
-              // Sort by timestamp descending
-              merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+              if (hasChanged) {
+                console.log(`[AI Insights] ✅ UPDATED insights state with ${databaseInsights.length} insight(s) from database (NO localStorage)`)
+                console.log(`[AI Insights] 📊 Previous timestamp: ${prevTimestamp}, New timestamp: ${newTimestamp}`)
+                console.log(`[AI Insights] 📊 Previous count: ${prev.length}, New count: ${databaseInsights.length}`)
+                console.log(`[AI Insights] 📊 Content changed: ${prevContent !== newContent}`)
+              } else {
+                console.log(`[AI Insights] ℹ️ Insights unchanged (${databaseInsights.length} insight(s), timestamp: ${newTimestamp})`)
+              }
               
-              // Save to localStorage
-              saveInsightsToStorage(merged)
-              return merged
+              // DO NOT save to localStorage - database is the only source of truth
+              return databaseInsights
             } else {
-              // If database is empty, keep existing insights (from cache)
-              console.log('[AI Insights] Database empty, keeping existing insights')
-              return prev
+              // If database is empty, clear insights (don't keep stale data)
+              console.log('[AI Insights] Database empty, clearing insights')
+              return []
             }
           })
           
@@ -814,8 +745,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       }
     }
 
-    // Fetch in background - don't block UI
+    // Fetch immediately on mount
     fetchSavedInsights()
+    
+    // Then fetch every 15 seconds to get latest insights (especially after auto-generation)
+    const intervalId = setInterval(() => {
+      console.log('[AI Insights] 🔄 Periodically fetching latest insights from database (every 15 seconds)...')
+      fetchSavedInsights()
+    }, 15000) // Every 15 seconds (same as auto-generation interval)
+
+    return () => {
+      clearInterval(intervalId)
+    }
   }, [sessionId])
 
   // Listen for data channel messages from AI agent
@@ -854,8 +795,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               (i) => !(i.participantId === newInsight.participantId && i.exerciseName === newInsight.exerciseName)
             )
             const updated = [...filtered, newInsight].slice(-20) // Keep last 20 insights total
-            // Save to localStorage whenever insights are updated
-            saveInsightsToStorage(updated)
+            // DO NOT save to localStorage - database is the only source of truth
             return updated
           })
         }
@@ -886,14 +826,71 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     console.log(`[AI Insights] 🎥 Setting up video elements. Found ${tracks.length} camera tracks`)
     console.log(`[AI Insights] 🎥 Track details:`, tracks.map(t => ({
       participantId: t.participant?.identity,
-      hasTrack: !!t.publication?.track,
-      trackKind: t.publication?.track?.kind
+      participantName: t.participant?.name,
+      hasPublication: !!t.publication,
+      hasPublicationTrack: !!t.publication?.track,
+      hasTrack: !!t.track,
+      trackKind: t.publication?.track?.kind || t.track?.kind,
+      trackSource: t.publication?.track?.source || t.track?.source,
+      isSubscribed: t.publication?.isSubscribed,
+      trackSid: t.publication?.trackSid || t.track?.sid
+    })))
+    
+    // Also log all participants and their tracks in detail
+    console.log(`[AI Insights] 🎥 All remote participants in room:`, Array.from(room.remoteParticipants.values()).map(p => {
+      const cameraTracks = Array.from(p.trackPublications.values()).filter(t => t.kind === 'video' && t.source === Track.Source.Camera)
+      return {
+        identity: p.identity,
+        name: p.name,
+        cameraTrackCount: cameraTracks.length,
+        cameraTracks: cameraTracks.map(t => ({
+          trackSid: t.trackSid,
+          isSubscribed: t.isSubscribed,
+          isMuted: t.isMuted,
+          track: t.track ? 'exists' : 'missing'
+        }))
+      }
+    }))
+    console.log(`[AI Insights] 🎥 Local participant:`, {
+      identity: room.localParticipant?.identity,
+      name: room.localParticipant?.name,
+      cameraTracks: Array.from(room.localParticipant?.trackPublications.values() || []).filter(t => t.kind === 'video' && t.source === Track.Source.Camera).map(t => ({
+        trackSid: t.trackSid,
+        isSubscribed: t.isSubscribed,
+        isMuted: t.isMuted,
+        track: t.track ? 'exists' : 'missing'
+      }))
+    })
+    
+    // Log all track publications to see what's available
+    const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
+    console.log(`[AI Insights] 🎥 All track publications across all participants:`, allParticipants.map(p => ({
+      identity: p?.identity,
+      name: p?.name,
+      allTracks: Array.from(p?.trackPublications.values() || []).map(t => ({
+        kind: t.kind,
+        source: t.source,
+        trackSid: t.trackSid,
+        isSubscribed: t.isSubscribed,
+        hasTrack: !!t.track
+      }))
     })))
 
     // Create video elements for each track
     tracks.forEach((trackRef) => {
-      if (!trackRef.participant || !trackRef.publication?.track) {
-        console.log('[AI Insights] ⚠️ Skipping track - missing participant or publication')
+      if (!trackRef.participant) {
+        console.log('[AI Insights] ⚠️ Skipping track - missing participant')
+        return
+      }
+
+      // Try to get track from publication first, then from trackRef directly
+      const track = trackRef.publication?.track || trackRef.track
+      if (!track) {
+        console.log('[AI Insights] ⚠️ Skipping track - no track available', {
+          participantId: trackRef.participant.identity,
+          hasPublication: !!trackRef.publication,
+          hasTrack: !!trackRef.track
+        })
         return
       }
       
@@ -928,7 +925,14 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       })
 
       // Set srcObject after event handlers are set up
-      const mediaStream = new MediaStream([trackRef.publication.track.mediaStreamTrack])
+      // Use mediaStreamTrack from the track object
+      const mediaStreamTrack = track.mediaStreamTrack
+      if (!mediaStreamTrack) {
+        console.error(`[AI Insights] ❌ No mediaStreamTrack available for ${participantId}`)
+        return
+      }
+      
+      const mediaStream = new MediaStream([mediaStreamTrack])
       videoElement.srcObject = mediaStream
       
       // Try to play, but don't worry if it fails (autoplay will handle it)
@@ -994,8 +998,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   }, [sessionId])
 
   useEffect(() => {
-    saveInsightsToStorageRef.current = saveInsightsToStorage
-  }, [saveInsightsToStorage])
+    // Removed - no longer using localStorage for insights
+  }, [])
 
   // Collect pose data every second and analyze every 10 seconds
   // Only set up once when room and video elements are available
@@ -1074,15 +1078,55 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         console.log(`[AI Insights] 🎯 Processing ${entries.length} participant(s) - will process first one this cycle`);
 
         // Only process the first participant to reduce load
-        const [participantId, videoElement] = entries[0];
+        // Skip coach for non-mocap sessions (coach is just observing, not being analyzed)
+        let participantToProcess = entries.find(([pid]) => {
+          const isMocapSession = sessionType === 'mocap'
+          const isCoach = sessionOwnerId && pid === sessionOwnerId
+          // For mocap: process coach (they're pointing camera at athlete)
+          // For non-mocap: skip coach, process participants
+          return isMocapSession || !isCoach
+        })
+        
+        // If no non-coach participant found, use first one anyway (for mocap or if coach is the only one)
+        if (!participantToProcess) {
+          participantToProcess = entries[0]
+        }
+        
+        const [participantId, videoElement] = participantToProcess
+        
+        // Log which participant we're processing and why
+        const isMocapSession = sessionType === 'mocap'
+        const isCoach = sessionOwnerId && participantId === sessionOwnerId
+        console.log(`[AI Insights] 🎯 Selected participant for pose detection: ${participantId}`, {
+          isCoach,
+          isMocapSession,
+          totalEntries: entries.length,
+          allParticipants: entries.map(([pid]) => pid)
+        })
         
         if (!videoElement) {
           console.log(`[AI Insights] No video element for ${participantId}`);
           return;
         }
 
+        // Check video element state
+        console.log(`[AI Insights] 📹 Video element state for ${participantId}:`, {
+          readyState: videoElement.readyState,
+          videoWidth: videoElement.videoWidth,
+          videoHeight: videoElement.videoHeight,
+          paused: videoElement.paused,
+          ended: videoElement.ended,
+          hasSrcObject: !!videoElement.srcObject,
+          currentTime: videoElement.currentTime
+        });
+
         if (videoElement.readyState < 2) {
-          console.log(`[AI Insights] Video element not ready for ${participantId} (readyState: ${videoElement.readyState})`);
+          console.log(`[AI Insights] ⏸️ Video element not ready for ${participantId} (readyState: ${videoElement.readyState})`);
+          return;
+        }
+
+        if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+          console.log(`[AI Insights] ⚠️ Video element has invalid dimensions for ${participantId}: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
           return;
         }
 
@@ -1108,8 +1152,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         try {
           // Estimate poses using ONNX Runtime Web + YOLOv8-Pose
           console.log(`[AI Insights] 🔬 Running pose estimation for ${participantId}...`);
+          console.log(`[AI Insights] 🔬 Video dimensions: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
           const poses = await estimatePoses(detector, videoElement);
           console.log(`[AI Insights] 📊 Pose estimation result: ${poses?.length || 0} pose(s) detected for ${participantId}`);
+          if (poses && poses.length > 0) {
+            console.log(`[AI Insights] 📊 First pose confidence: ${poses[0].score}, keypoints: ${poses[0].keypoints?.length || 0}`);
+          }
 
           if (!poses || poses.length === 0) {
             // No pose detected, skip processing
@@ -1606,19 +1654,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           timestamp: new Date().toISOString(),
         }))
 
+        console.log(`[AI Insights] 🤖 Generated ${generatedInsights.length} new insight(s) - updating state immediately`)
+        console.log(`[AI Insights] 📊 Insight timestamps:`, generatedInsights.map(i => ({ participantId: i.participantId, timestamp: i.timestamp })))
+        
         setInsights(generatedInsights)
         setShowInsights(true) // Show insights after generation
         
-        // Save insights to localStorage for persistence across tab switches
-        saveInsightsToStorage(generatedInsights)
+        // Insights are already saved to DynamoDB (jak-coach-session-ai-insights table) by the API
+        console.log(`[AI Insights] ✅ Generated and saved ${generatedInsights.length} insight(s) to DynamoDB table: jak-coach-session-ai-insights`)
+        console.log(`[AI Insights] 🔄 Next database fetch (in ~15 seconds) will pick up these new insights`)
         
-        // Also save showInsights flag to localStorage
-        try {
-          const storageKey = `ai-insights-show-flag-${sessionId}`
-          localStorage.setItem(storageKey, JSON.stringify({ showInsights: true }))
-        } catch (error) {
-          console.error('[AI Insights] Error saving showInsights flag to localStorage:', error)
-        }
+        // DO NOT save to localStorage - database is the only source of truth
+        // The periodic database fetch will update the UI with the latest insights
         
         setExportMessage({ 
           type: 'success', 
@@ -1783,26 +1830,27 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      <div className="p-4 pb-2 flex-shrink-0 border-b">
+        <h3 className="font-semibold text-sm whitespace-nowrap mb-4">Real-Time Movement Analysis</h3>
+        
+        {exportMessage && (
+          <Alert variant={exportMessage.type === 'error' ? 'destructive' : 'default'} className="mb-4">
+            <AlertDescription>{exportMessage.text}</AlertDescription>
+          </Alert>
+        )}
+      </div>
       
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className="p-4 pb-2 flex-shrink-0">
-          <h3 className="font-semibold text-sm whitespace-nowrap mb-4">Real-Time Movement Analysis</h3>
-          
-          {exportMessage && (
-            <Alert variant={exportMessage.type === 'error' ? 'destructive' : 'default'} className="mb-4">
-              <AlertDescription>{exportMessage.text}</AlertDescription>
-            </Alert>
-          )}
-          
-          <Tabs defaultValue="insights" className="w-full flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-2 relative flex-shrink-0">
-              <TabsTrigger value="insights">Movement Insights</TabsTrigger>
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-px bg-border" />
-              <TabsTrigger value="report">Session Report</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="insights" className="mt-4 flex-1 overflow-y-auto overflow-x-auto scrollbar-hide min-w-0">
-              <div className="space-y-4">
+      <Tabs defaultValue="insights" className="flex-1 flex flex-col overflow-hidden min-h-0">
+        <div className="px-4 pt-2 flex-shrink-0 border-b">
+          <TabsList className="grid w-full grid-cols-2 relative">
+            <TabsTrigger value="insights">Movement Insights</TabsTrigger>
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-px bg-border" />
+            <TabsTrigger value="report">Session Report</TabsTrigger>
+          </TabsList>
+        </div>
+        
+        <TabsContent value="insights" className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 mt-0 p-4" style={{ height: 0 }}>
+          <div className="space-y-4">
               {(() => {
                 // Helper functions for insight display
                 const getRiskColor = (riskLevel?: string) => {
@@ -1987,28 +2035,6 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                 if (showInsights && insights.length > 0 && Object.keys(insightsByParticipant).length > 0) {
                   return (
                     <div className="space-y-4">
-                      <div className="flex flex-col sm:flex-row gap-2 justify-end">
-                        <Button
-                          onClick={handleExportSummary}
-                          disabled={isExporting || !sessionId || insights.length === 0}
-                          size="sm"
-                          variant="outline"
-                          className="flex items-center gap-2 w-full sm:w-auto min-w-0 shrink-0"
-                        >
-                          {isExporting ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                              <span className="truncate">Exporting...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Download className="h-4 w-4 shrink-0" />
-                              <span className="truncate">Export Session Summary</span>
-                            </>
-                          )}
-                        </Button>
-                      </div>
-
                       {/* If only 1 participant (not counting coach), show single card */}
                       {nonCoachParticipantCount === 1 ? (
                         <div className="space-y-4">
@@ -2093,10 +2119,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   )
                 }
               })()}
-              </div>
-            </TabsContent>
+          </div>
+        </TabsContent>
 
-            <TabsContent value="report" className="mt-4 flex-1 flex flex-col items-center justify-center">
+        <TabsContent value="report" className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 mt-0 p-4 flex flex-col items-center justify-center">
               <div className="text-center space-y-4">
                 <p className="text-sm text-muted-foreground mb-6">
                   Export a comprehensive PDF summary of the session
@@ -2126,10 +2152,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
                   </p>
                 )}
               </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
