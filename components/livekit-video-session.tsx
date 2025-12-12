@@ -704,6 +704,7 @@ function RoomContent({
     console.log('[Client] Connection status useEffect triggered')
     console.log('[Client] expectedParticipantIdsRef.current:', expectedParticipantIdsRef.current)
     console.log('[Client] participants.length:', participants.length)
+    console.log('[Client] remoteParticipants.length:', remoteParticipants.length)
     
     if (expectedParticipantIdsRef.current.length > 0) {
       // Get all participant identities including local participant
@@ -721,10 +722,11 @@ function RoomContent({
         }
       })
       
-      // Also check the participants array directly
+      // Also check the participants array directly (this is the most reliable source)
       participants.forEach(p => {
         if (p.identity) {
           allParticipantIdentities.add(p.identity)
+          console.log('[Client] Added participant from participants array:', p.identity)
         }
       })
       
@@ -740,13 +742,23 @@ function RoomContent({
       setExpectedParticipants(prev => {
         console.log('[Client] Current expected participants before update:', prev)
         const updated = prev.map(exp => {
-          const isConnected = identitiesArray.includes(exp.id)
+          // Check if this expected participant ID matches any connected participant identity
+          const isConnected = identitiesArray.some(id => id === exp.id || id.includes(exp.id) || exp.id.includes(id))
           console.log(`[Client] Checking ${exp.id} (${exp.name}): ${isConnected ? '✅ Connected' : '❌ Not Connected'}`)
           if (isConnected) {
             console.log(`[Client] ✅ Match found! ${exp.name} is connected`)
           } else {
             console.log(`[Client] ❌ No match. Looking for "${exp.id}" in:`, identitiesArray)
             console.log(`[Client] Comparison: "${exp.id}" === any of:`, identitiesArray.map(id => `"${id}"`))
+            // Try to find a partial match (in case IDs are slightly different)
+            const partialMatch = identitiesArray.find(id => 
+              id.toLowerCase() === exp.id.toLowerCase() ||
+              id.endsWith(exp.id) ||
+              exp.id.endsWith(id)
+            )
+            if (partialMatch) {
+              console.log(`[Client] ⚠️ Found partial match: "${exp.id}" might match "${partialMatch}"`)
+            }
           }
           return {
             ...exp,
@@ -759,7 +771,64 @@ function RoomContent({
     } else {
       console.log('[Client] Skipping connection status update - no expected participants yet')
     }
-  }, [participants.length, localParticipant?.identity, remoteParticipants.length])
+  }, [participants, localParticipant?.identity, remoteParticipants, room])
+
+  // Listen for participant join/leave events to update connection status in real-time
+  // This ensures immediate updates when participants connect/disconnect
+  useEffect(() => {
+    if (!room || expectedParticipantIdsRef.current.length === 0) return
+
+    const updateConnectionStatus = () => {
+      const allParticipantIdentities = new Set<string>()
+      
+      if (room.localParticipant?.identity) {
+        allParticipantIdentities.add(room.localParticipant.identity)
+      }
+      
+      room.remoteParticipants.forEach(p => {
+        if (p.identity) {
+          allParticipantIdentities.add(p.identity)
+        }
+      })
+      
+      const identitiesArray = Array.from(allParticipantIdentities)
+      
+      console.log('[Client] 🎯 Real-time connection update - connected identities:', identitiesArray)
+      
+      setExpectedParticipants(prev => {
+        const updated = prev.map(exp => {
+          const isConnected = identitiesArray.includes(exp.id)
+          if (isConnected !== exp.isConnected) {
+            console.log(`[Client] 🔄 Connection status changed for ${exp.name}: ${exp.isConnected ? '❌' : '✅'} → ${isConnected ? '✅' : '❌'}`)
+          }
+          return {
+            ...exp,
+            isConnected
+          }
+        })
+        return updated
+      })
+    }
+
+    // Listen for participant events
+    room.on('participantConnected', (participant) => {
+      console.log('[Client] 🎉 Participant connected event:', participant.identity)
+      updateConnectionStatus()
+    })
+    
+    room.on('participantDisconnected', (participant) => {
+      console.log('[Client] 👋 Participant disconnected event:', participant.identity)
+      updateConnectionStatus()
+    })
+
+    // Initial update
+    updateConnectionStatus()
+
+    return () => {
+      room.off('participantConnected', updateConnectionStatus)
+      room.off('participantDisconnected', updateConnectionStatus)
+    }
+  }, [room, expectedParticipantIdsRef.current.length])
   
   // Helper to get track for a participant
   const getTrackForParticipant = (participantIdentity: string) => {

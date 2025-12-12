@@ -213,7 +213,7 @@ export default function CoachProfile() {
                 <div className="flex items-center gap-6">
                   <Avatar className="size-24">
                     <AvatarImage 
-                      src={coachData.avatar || getPlaceholderAvatar(coachData.name)} 
+                      src={getPlaceholderAvatar(coachData.name)} 
                       alt={coachData.name} 
                     />
                     <AvatarFallback className="text-2xl font-semibold">{coachData.initials}</AvatarFallback>
