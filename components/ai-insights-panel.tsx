@@ -182,7 +182,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   }, [sessionId])
 
   // NO localStorage for insights - database is the ONLY source of truth
-  // All insights are fetched from DynamoDB every 15 seconds
+  // All insights are fetched from DynamoDB every 30 seconds
 
   // Use refs for values that change frequently to avoid re-running useEffect
   const participantInfoRef = useRef(participantInfo)
@@ -196,7 +196,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   }, [sessionId])
 
   // NO localStorage for insights - database is the ONLY source of truth
-  // Insights are fetched from database every 15 seconds
+  // Insights are fetched from database every 30 seconds
   useEffect(() => {
     if (!sessionId) {
       setInsights([])
@@ -371,8 +371,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     Object.entries(latestMetrics).forEach(([pid, metric]) => {
       console.log(`[AI Insights] 📊 Participant ${pid}: balance=${metric.balance_score}, symmetry=${metric.symmetry_score}, postural=${metric.postural_efficiency}, timestamp=${metric.timestamp}`)
     })
-    // Update ref for chat posting
+    // Update ref for chat posting immediately
     latestMetricsRef.current = latestMetrics
+    console.log(`[AI Insights] 🔄 Updated latestMetricsRef with ${Object.keys(latestMetrics).length} participant(s) for chat posting`)
   }, [latestMetrics, metricsUpdateKey, metricsTimestamp])
 
   // Post metrics to chat as AI coach bot every 30 seconds
@@ -517,7 +518,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }
 
-  // Auto-generate insights every 15 seconds when metrics are available
+  // Auto-generate insights every 30 seconds when metrics are available
+  // Uses latest metrics from the database to generate fresh insights
   useEffect(() => {
     if (!sessionId) return
 
@@ -528,7 +530,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       return
     }
 
-    console.log('[AI Insights] 🤖 Setting up automatic insight generation (every 15 seconds)')
+    console.log('[AI Insights] 🤖 Setting up automatic insight generation (every 30 seconds)')
+    console.log('[AI Insights] 📊 Current metrics available:', Object.keys(latestMetrics).length, 'participant(s)')
     
     // Clear any existing interval
     if (insightsGenerationIntervalRef.current) {
@@ -536,13 +539,14 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       insightsGenerationIntervalRef.current = null
     }
 
-    // Generate insights immediately if we have metrics, then every 15 seconds
+    // Generate insights using the latest metrics from database
     const generateInsights = async () => {
       if (!sessionId || isGenerating) {
         console.log('[AI Insights] ⏸️ Skipping insight generation - sessionId missing or already generating')
         return
       }
 
+      // Always use latestMetrics (which is updated every 2 seconds from database)
       const currentMetrics = Object.keys(latestMetrics).length > 0 ? latestMetrics : {}
       const hasCurrentMetrics = Object.keys(currentMetrics).length > 0 || metrics.length > 0
       
@@ -551,20 +555,21 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         return
       }
 
-      console.log('[AI Insights] 🤖 Auto-generating insights from metrics...')
+      console.log('[AI Insights] 🤖 Auto-generating insights from LATEST metrics...')
+      console.log('[AI Insights] 📊 Using metrics from', Object.keys(currentMetrics).length, 'participant(s)')
       await handleGenerateInsights()
     }
 
-    // Generate first insights after 15 seconds (to allow metrics to accumulate)
+    // Generate first insights after 30 seconds (to allow metrics to accumulate)
     const firstGenerationTimeout = setTimeout(() => {
       generateInsights()
       
       // Then set up recurring interval
       insightsGenerationIntervalRef.current = setInterval(() => {
-        console.log('[AI Insights] 🤖 Recurring auto-insight generation triggered (every 15 seconds)')
+        console.log('[AI Insights] 🤖 Recurring auto-insight generation triggered (every 30 seconds)')
         generateInsights()
-      }, 15000) // Every 15 seconds
-    }, 15000) // Start after 15 seconds
+      }, 30000) // Every 30 seconds
+    }, 30000) // Start after 30 seconds
 
     return () => {
       clearTimeout(firstGenerationTimeout)
@@ -616,9 +621,17 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       const currentMetrics = { ...latestMetricsRef.current }
       console.log('[AI Insights] 💬 postMetrics called - metrics count:', Object.keys(currentMetrics).length)
       console.log('[AI Insights] 💬 Metrics keys:', Object.keys(currentMetrics))
+      console.log('[AI Insights] 💬 Metrics ref content:', Object.entries(currentMetrics).map(([id, m]) => ({
+        id,
+        name: m.participant_name,
+        balance: m.balance_score,
+        symmetry: m.symmetry_score,
+        postural: m.postural_efficiency
+      })))
       
       if (Object.keys(currentMetrics).length === 0) {
         console.log('[AI Insights] ⏸️ No metrics to post to chat - will retry on next interval')
+        console.log('[AI Insights] 💬 latestMetricsRef.current is empty - metrics may not be collected yet')
         return
       }
 
@@ -626,9 +639,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       await postMetricsToChat(currentMetrics)
     }
 
-    // Post first metrics after 30 seconds, then every 30 seconds
+    // Post first metrics after 5 seconds (if metrics available), then every 30 seconds
     // The interval will check for metrics on each run, so it's fine if metrics aren't available yet
-    console.log(`[AI Insights] 💬 Scheduling first chat post in 30 seconds...`)
+    console.log(`[AI Insights] 💬 Scheduling first chat post in 5 seconds (if metrics available)...`)
     
     const firstPostTimeout = setTimeout(() => {
       console.log('[AI Insights] 💬 First chat post timeout fired!')
@@ -639,7 +652,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         console.log('[AI Insights] 💬 Recurring chat metrics posting triggered (every 30 seconds)')
         postMetrics()
       }, 30000) // Every 30 seconds
-    }, 30000) // Start after 30 seconds
+    }, 5000) // Start after 5 seconds (reduced from 30 seconds for faster initial post)
 
     return () => {
       console.log('[AI Insights] 💬 Cleaning up chat metrics interval')
@@ -652,7 +665,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   }, [sessionId, room]) // Only depend on sessionId and room - don't re-run when metrics change
 
   // Fetch saved AI insights from database periodically
-  // This runs every 15 seconds to get the latest insights (especially after auto-generation)
+  // This runs every 30 seconds to get the latest insights (especially after auto-generation)
   useEffect(() => {
     if (!sessionId) return
 
@@ -748,11 +761,11 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     // Fetch immediately on mount
     fetchSavedInsights()
     
-    // Then fetch every 15 seconds to get latest insights (especially after auto-generation)
+    // Then fetch every 30 seconds to get latest insights (especially after auto-generation)
     const intervalId = setInterval(() => {
-      console.log('[AI Insights] 🔄 Periodically fetching latest insights from database (every 15 seconds)...')
+      console.log('[AI Insights] 🔄 Periodically fetching latest insights from database (every 30 seconds)...')
       fetchSavedInsights()
-    }, 15000) // Every 15 seconds (same as auto-generation interval)
+    }, 30000) // Every 30 seconds (same as auto-generation interval)
 
     return () => {
       clearInterval(intervalId)
@@ -1662,7 +1675,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         
         // Insights are already saved to DynamoDB (jak-coach-session-ai-insights table) by the API
         console.log(`[AI Insights] ✅ Generated and saved ${generatedInsights.length} insight(s) to DynamoDB table: jak-coach-session-ai-insights`)
-        console.log(`[AI Insights] 🔄 Next database fetch (in ~15 seconds) will pick up these new insights`)
+        console.log(`[AI Insights] 🔄 Next database fetch (in ~30 seconds) will pick up these new insights`)
         
         // DO NOT save to localStorage - database is the only source of truth
         // The periodic database fetch will update the UI with the latest insights
