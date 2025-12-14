@@ -17,6 +17,7 @@ import { useTheme } from "next-themes"
 const coachNavItems = [
   { name: "Schedule", href: "/" },
   { name: "Clients", href: "/clients" },
+  { name: "Exercises", href: "/exercises" },
   { name: "Offline Programs", href: "/offline-programs", v2Only: true },
   { name: "Protocols", href: "/protocols", v2Only: true },
   { name: "Revenue", href: "/revenue", v2Only: true },

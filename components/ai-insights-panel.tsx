@@ -619,6 +619,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
       // Get latest metrics from ref (always up-to-date)
       const currentMetrics = { ...latestMetricsRef.current }
+      console.log('[AI Insights] 💬 postMetrics called at:', new Date().toISOString())
       console.log('[AI Insights] 💬 postMetrics called - metrics count:', Object.keys(currentMetrics).length)
       console.log('[AI Insights] 💬 Metrics keys:', Object.keys(currentMetrics))
       console.log('[AI Insights] 💬 Metrics ref content:', Object.entries(currentMetrics).map(([id, m]) => ({
@@ -628,15 +629,22 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         symmetry: m.symmetry_score,
         postural: m.postural_efficiency
       })))
+      console.log('[AI Insights] 💬 latestMetrics state (for comparison):', Object.keys(latestMetrics).length, 'participants')
       
       if (Object.keys(currentMetrics).length === 0) {
         console.log('[AI Insights] ⏸️ No metrics to post to chat - will retry on next interval')
         console.log('[AI Insights] 💬 latestMetricsRef.current is empty - metrics may not be collected yet')
+        console.log('[AI Insights] 💬 latestMetrics state has:', Object.keys(latestMetrics).length, 'participants')
         return
       }
 
       console.log('[AI Insights] 💬 Posting metrics to chat...', Object.keys(currentMetrics))
-      await postMetricsToChat(currentMetrics)
+      try {
+        await postMetricsToChat(currentMetrics)
+        console.log('[AI Insights] ✅ Successfully completed postMetricsToChat at', new Date().toISOString())
+      } catch (error) {
+        console.error('[AI Insights] ❌ Error in postMetricsToChat:', error)
+      }
     }
 
     // Post first metrics after 5 seconds (if metrics available), then every 30 seconds
@@ -649,9 +657,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       
       // Then set up recurring interval
       chatMetricsIntervalRef.current = setInterval(() => {
-        console.log('[AI Insights] 💬 Recurring chat metrics posting triggered (every 30 seconds)')
+        const now = new Date().toISOString()
+        console.log(`[AI Insights] 💬 Recurring chat metrics posting triggered at ${now} (every 30 seconds)`)
         postMetrics()
       }, 30000) // Every 30 seconds
+      
+      console.log('[AI Insights] ✅ Chat metrics interval set up successfully. Will post every 30 seconds.')
     }, 5000) // Start after 5 seconds (reduced from 30 seconds for faster initial post)
 
     return () => {
@@ -662,7 +673,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         chatMetricsIntervalRef.current = null
       }
     }
-  }, [sessionId, room]) // Only depend on sessionId and room - don't re-run when metrics change
+  }, [sessionId, room?.state]) // Only depend on sessionId and room state - don't re-run when metrics change
 
   // Fetch saved AI insights from database periodically
   // This runs every 30 seconds to get the latest insights (especially after auto-generation)

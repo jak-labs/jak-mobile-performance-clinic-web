@@ -269,7 +269,11 @@ function RoomContent({
     if (!room) return
 
     const handleDisconnected = () => {
-      router.push('/')
+      console.log('[Client] Room disconnected event fired - redirecting to dashboard')
+      // Use setTimeout to ensure the disconnect completes before navigation
+      setTimeout(() => {
+        router.push('/')
+      }, 100)
     }
 
     room.on('disconnected', handleDisconnected)
@@ -1434,7 +1438,7 @@ function RoomContent({
           `
         }} />
         <div 
-          className="absolute left-1/2 -translate-x-1/2 z-50"
+          className="absolute left-1/2 -translate-x-1/2 z-50 flex items-center gap-2"
           style={{ 
             bottom: 'calc(3vh + env(safe-area-inset-bottom, 0))'
           }}
@@ -1444,12 +1448,46 @@ function RoomContent({
               microphone: true,
               camera: true,
               screenShare: true,
-              leave: true,
+              leave: false, // Disable default leave button - we'll add custom one
               chat: false,
               settings: false,
             }}
             variation="minimal"
           />
+          {/* Custom leave button with explicit redirect */}
+          <DisconnectButton
+            onClick={async (e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              console.log('[Client] Custom leave button clicked - disconnecting and redirecting')
+              try {
+                if (room) {
+                  await room.disconnect()
+                }
+                // Redirect immediately - don't wait for event
+                console.log('[Client] Redirecting to dashboard')
+                router.push('/')
+              } catch (error) {
+                console.error('[Client] Error disconnecting:', error)
+                // Redirect anyway
+                router.push('/')
+              }
+            }}
+            className="lk-button lk-button-primary"
+            style={{
+              backgroundColor: 'rgb(239, 68, 68)',
+              color: 'white',
+              borderRadius: '9999px',
+              padding: '0.75rem',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <PhoneOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
+          </DisconnectButton>
         </div>
 
         {/* Session info - Clean, minimal badges */}
