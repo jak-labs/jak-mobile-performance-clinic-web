@@ -3,12 +3,22 @@ import { NextResponse } from "next/server";
 
 export default withAuth(
   function middleware(req) {
+    // Allow root path to be accessible without authentication (selection page)
+    if (req.nextUrl.pathname === "/") {
+      return NextResponse.next();
+    }
     // Add custom middleware logic here if needed
     return NextResponse.next();
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ token, req }) => {
+        // Allow root path without authentication
+        if (req.nextUrl.pathname === "/") {
+          return true;
+        }
+        return !!token;
+      },
     },
     pages: {
       signIn: "/sign-in",
@@ -25,10 +35,9 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - sign-in, sign-up, forgot-password (auth pages)
+     * - sign-in, sign-up, coach-signup, member-signup, forgot-password (auth pages)
      * - public files (images, etc.)
      */
-    "/((?!api/auth|_next/static|_next/image|favicon.ico|sign-in|sign-up|forgot-password|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api/auth|_next/static|_next/image|favicon.ico|sign-in|sign-up|coach-signup|member-signup|forgot-password|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
-

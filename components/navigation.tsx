@@ -94,10 +94,19 @@ export default function Navigation() {
   const navItems = isMember ? memberNavItems : coachNavItems
   const visibleNavItems = navItems.filter((item) => !('v2Only' in item) || (item.v2Only && v2Enabled))
 
-  const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up"
+  const isAuthPage = pathname === "/sign-in" || 
+                     pathname === "/sign-up" || 
+                     pathname === "/coach-signup" || 
+                     pathname === "/member-signup" ||
+                     pathname === "/forgot-password" ||
+                     pathname === "/verify-email"
   const isSessionPage = pathname?.startsWith("/session/")
 
-  if (isAuthPage || isSessionPage) {
+  // Don't show navigation if:
+  // 1. User is not authenticated (no session)
+  // 2. On auth pages
+  // 3. On session pages
+  if (!session || isAuthPage || isSessionPage) {
     return null
   }
 
