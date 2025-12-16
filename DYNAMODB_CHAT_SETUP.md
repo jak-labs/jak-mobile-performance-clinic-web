@@ -98,3 +98,4 @@ Your AWS credentials need the following DynamoDB permissions:
 }
 ```
 
+
