@@ -33,7 +33,7 @@ import { AIInsightsPanel } from "./ai-insights-panel"
 import { ChatPanel } from "./chat-panel"
 import { CustomVideoControls } from "./custom-video-controls"
 import { RealtimeMetricsProvider, useRealtimeMetrics } from "@/lib/realtime-metrics-context"
-import { RealtimeMetricsDisplay } from "./realtime-metrics-display"
+import { LiveMetricsTab } from "./live-metrics-tab"
 
 type LayoutMode = 'default' | 'grid' | 'spotlight' | 'one-on-one'
 
@@ -1014,14 +1014,6 @@ function RoomContent({
             <p>{displayName}</p>
           </div>
           
-          {/* Real-time metrics display - always show, will show loading state if no data */}
-          <RealtimeMetricsDisplay
-            participantId={participant.identity}
-            participantName={displayName}
-            angles={realtimeData[participant.identity]?.angles || null}
-            metrics={realtimeData[participant.identity]?.metrics || null}
-            isCoach={localParticipant?.identity === sessionOwnerId}
-          />
         </div>
       )
     } else {
@@ -1067,14 +1059,6 @@ function RoomContent({
               <p>{displayName}</p>
             </div>
             
-            {/* Real-time metrics display - always show, will show loading state if no data */}
-            <RealtimeMetricsDisplay
-              participantId={participant.identity}
-              participantName={displayName}
-              angles={realtimeData[participant.identity]?.angles || null}
-              metrics={realtimeData[participant.identity]?.metrics || null}
-              isCoach={localParticipant?.identity === sessionOwnerId}
-            />
           </div>
         </div>
       )
@@ -1305,14 +1289,6 @@ function RoomContent({
                         <div className="lk-participant-name-overlay">
                           <p>{displayName}</p>
                         </div>
-                        {/* Real-time metrics display - always show, will show loading state if no data */}
-                        <RealtimeMetricsDisplay
-                          participantId={spotlightParticipant.identity}
-                          participantName={displayName}
-                          angles={realtimeData[spotlightParticipant.identity]?.angles || null}
-                          metrics={realtimeData[spotlightParticipant.identity]?.metrics || null}
-                          isCoach={localParticipant?.identity === sessionOwnerId}
-                        />
                       </>
                     )
                   })()}
@@ -1621,6 +1597,9 @@ function RoomContent({
               <TabsTrigger value="chat" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
                 Chat
               </TabsTrigger>
+              <TabsTrigger value="live-metrics" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
+                Live Metrics
+              </TabsTrigger>
               {/* Only show Insights tab to coaches */}
               {localParticipant?.identity === sessionOwnerId && (
                 <TabsTrigger value="insights" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
@@ -1808,6 +1787,20 @@ function RoomContent({
               sessionOwnerId={sessionOwnerId}
               participantInfo={participantInfo}
               localParticipantId={localParticipant?.identity}
+            />
+          </TabsContent>
+
+          {/* Live Metrics Tab */}
+          <TabsContent
+            value="live-metrics"
+            className="flex-1 overflow-hidden mt-0 p-0 h-full"
+          >
+            <LiveMetricsTab
+              participants={participants.map(p => ({
+                identity: p.identity,
+                name: participantInfo[p.identity]?.fullName || p.name || p.identity
+              }))}
+              participantInfo={participantInfo}
             />
           </TabsContent>
 

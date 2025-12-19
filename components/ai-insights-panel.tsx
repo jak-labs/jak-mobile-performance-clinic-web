@@ -82,7 +82,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   const room = useRoomContext()
   
   // Mark this panel as rendered for status checking
+  // Set pose detection flag optimistically as soon as component mounts
   useEffect(() => {
+    // Set flag immediately when component mounts - setup will happen when room is ready
+    ;(window as any).__poseDetectionSetup = true
+    console.log('[AI Insights] ✅ Component mounted - pose detection setup flag set to true')
+    
     const panel = document.querySelector('[data-ai-insights-panel]')
     if (!panel) {
       // Create a marker element if it doesn't exist
@@ -91,6 +96,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       marker.style.display = 'none'
       document.body.appendChild(marker)
     }
+    
+    // Also set a global flag that this component is rendered
+    ;(window as any).__aiInsightsPanelRendered = true
+    console.log('[AI Insights] ✅ AIInsightsPanel component rendered')
   }, [])
   // Get all camera tracks (both subscribed and unsubscribed to ensure we get all participants)
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false })
@@ -101,19 +110,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   // Log coach status for debugging
   console.log(`[AI Insights] 👤 Coach check - localParticipant: ${room?.localParticipant?.identity}, sessionOwnerId: ${sessionOwnerId}, isCoach: ${isCoach}`)
   
-  // Only show metrics and insights to the coach
-  if (!isCoach) {
-    console.log('[AI Insights] ⚠️ User is not a coach, hiding AI insights panel')
-    return (
-      <div className="h-full flex items-center justify-center p-8">
-        <div className="text-center text-muted-foreground">
-          <p className="text-sm">AI insights and metrics are only available to coaches.</p>
-        </div>
-      </div>
-    )
-  }
+  // Pose detection should run for BOTH coach and participants
+  // - Coach: analyzes participant videos
+  // - Participants: analyze their own video for real-time feedback
+  // Only hide the insights panel UI for non-coaches, but keep pose detection running
   
-  console.log('[AI Insights] ✅ User is a coach, showing AI insights panel')
+  // All state and logic must be declared BEFORE any early returns
+  // This ensures pose detection setup runs for both coach and participants
   const [insights, setInsights] = useState<AIInsight[]>([]) // Generated insights (single per participant) - only shown after clicking "Generate Session Insights"
   const [metrics, setMetrics] = useState<AIMetric[]>([]) // Real-time metrics
   const [latestMetrics, setLatestMetrics] = useState<Record<string, AIMetric>>({}) // Latest metric per participant
@@ -765,19 +768,46 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }, [sessionId, room?.state]) // Only depend on sessionId and room state - don't re-run when metrics change
 
-  // Send welcome message when participants join (immediately)
+  // Check if welcome message was already sent (from database)
+  const checkWelcomeMessageSent = async (participantId: string): Promise<boolean> => {
+    const currentSessionId = sessionIdRef.current || sessionId
+    if (!currentSessionId) return false
+    
+    try {
+      const response = await fetch(`/api/chat/messages/${currentSessionId}`)
+      if (response.ok) {
+        const data = await response.json()
+        const messages = data.messages || []
+        
+        // Check if there's already a welcome message for this participant
+        const hasWelcomeMessage = messages.some((msg: any) => 
+          msg.message_type === 'ai_agent' &&
+          msg.metadata?.message_type === 'welcome' &&
+          msg.metadata?.participant_id === participantId
+        )
+        
+        if (hasWelcomeMessage) {
+          console.log(`[AI Insights] ✅ Welcome message already exists in database for ${participantId}`)
+          return true
+        }
+      }
+    } catch (error) {
+      console.error('[AI Insights] Error checking welcome message:', error)
+    }
+    
+    return false
+  }
+
+  // Send welcome message when participants join (only once per participant)
+  // NOTE: Welcome messages are primarily handled in chat-panel.tsx, but we keep this for backwards compatibility
   useEffect(() => {
     if (!sessionId || !room || room.state !== ConnectionState.Connected) {
-      console.log('[AI Insights] 👋 Welcome message effect skipped - missing requirements:', {
-        hasSessionId: !!sessionId,
-        hasRoom: !!room,
-        roomState: room?.state
-      })
+      console.log('[AI Insights] 👋 Welcome message effect skipped - missing requirements')
       return
     }
 
     // Listen for participant connected events
-    const handleParticipantConnected = (participant: any) => {
+    const handleParticipantConnected = async (participant: any) => {
       if (!participant || !participant.identity) return
 
       const participantId = participant.identity
@@ -788,9 +818,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         return
       }
 
-      // Skip if already sent welcome message
+      // Skip if already sent welcome message (in-memory check)
       if (welcomeMessageSentRef.current.has(participantId)) {
-        console.log(`[AI Insights] 👋 Already sent welcome to: ${participantId}`)
+        console.log(`[AI Insights] 👋 Already sent welcome to: ${participantId} (in-memory check)`)
+        return
+      }
+
+      // Check database to see if welcome message was already sent
+      const alreadySent = await checkWelcomeMessageSent(participantId)
+      if (alreadySent) {
+        console.log(`[AI Insights] 👋 Welcome message already exists in database for ${participantId}, skipping`)
+        // Mark in memory so we don't check again
+        welcomeMessageSentRef.current.add(participantId)
         return
       }
 
@@ -800,39 +839,54 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       // Get participant name
       const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
       
-      console.log(`[AI Insights] 👋 Participant connected: ${participantName} (${participantId}) - sending welcome message immediately`)
+      console.log(`[AI Insights] 👋 Participant connected: ${participantName} (${participantId}) - sending welcome message`)
       
-      // Send welcome message immediately
+      // Send welcome message
       sendWelcomeMessage(participantId, participantName)
     }
 
-    // Check existing participants when effect runs
-    const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
-    allParticipants.forEach(participant => {
-      if (!participant) return
-      const participantId = participant.identity
+    // Check existing participants when effect runs (only once on mount)
+    const checkExistingParticipants = async () => {
+      const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
       
-      // Skip coach for non-mocap sessions
-      if (sessionOwnerId && participantId === sessionOwnerId && sessionType !== 'mocap') {
-        return
+      for (const participant of allParticipants) {
+        if (!participant) continue
+        const participantId = participant.identity
+        
+        // Skip coach for non-mocap sessions
+        if (sessionOwnerId && participantId === sessionOwnerId && sessionType !== 'mocap') {
+          continue
+        }
+
+        // Skip if already sent welcome message (in-memory check)
+        if (welcomeMessageSentRef.current.has(participantId)) {
+          continue
+        }
+
+        // Check database to see if welcome message was already sent
+        const alreadySent = await checkWelcomeMessageSent(participantId)
+        if (alreadySent) {
+          console.log(`[AI Insights] 👋 Welcome message already exists in database for ${participantId}, skipping`)
+          // Mark in memory so we don't check again
+          welcomeMessageSentRef.current.add(participantId)
+          continue
+        }
+
+        // Mark as sent immediately to prevent duplicates
+        welcomeMessageSentRef.current.add(participantId)
+
+        // Get participant name
+        const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
+        
+        console.log(`[AI Insights] 👋 Existing participant found: ${participantName} (${participantId}) - sending welcome message`)
+        
+        // Send welcome message
+        sendWelcomeMessage(participantId, participantName)
       }
+    }
 
-      // Skip if already sent welcome message
-      if (welcomeMessageSentRef.current.has(participantId)) {
-        return
-      }
-
-      // Mark as sent immediately to prevent duplicates
-      welcomeMessageSentRef.current.add(participantId)
-
-      // Get participant name
-      const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
-      
-      console.log(`[AI Insights] 👋 Existing participant found: ${participantName} (${participantId}) - sending welcome message immediately`)
-      
-      // Send welcome message immediately
-      sendWelcomeMessage(participantId, participantName)
-    })
+    // Check existing participants once on mount
+    checkExistingParticipants()
 
     // Listen for new participants joining
     room.on(RoomEvent.ParticipantConnected, handleParticipantConnected)
@@ -841,7 +895,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     return () => {
       room.off(RoomEvent.ParticipantConnected, handleParticipantConnected)
     }
-  }, [sessionId, room, room?.state, participantInfo, sessionOwnerId, sessionType])
+  }, [sessionId, room, room?.state]) // Removed participantInfo, sessionOwnerId, sessionType from dependencies to prevent re-runs
 
   // Fetch saved AI insights from database periodically
   // This runs every 30 seconds to get the latest insights (especially after auto-generation)
@@ -1288,20 +1342,50 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   }, [])
 
   // Collect pose data every second and analyze every 10 seconds
-  // Only set up once when room and video elements are available
+  // Only set up once when room is available (video elements can be added later)
+  // This runs for BOTH coach and participants
   useEffect(() => {
+    // Set flag optimistically IMMEDIATELY - setup is in progress
+    // This ensures the UI knows we're working on it, even if room isn't ready yet
+    ;(window as any).__poseDetectionSetup = true
+    console.log('[AI Insights] ✅ Setup flag set to true (setup in progress)')
+    
     if (!room) {
-      console.log('[AI Insights] Skipping setup - room not available')
+      console.log('[AI Insights] ⚠️ Room not available yet, will set up when room is ready')
+      // Flag is already set to true above, so UI won't show "waiting" message
       return
+    }
+
+    // Wait for room to be connected before actually setting up intervals
+    if (room.state !== ConnectionState.Connected) {
+      console.log('[AI Insights] ⚠️ Room not connected yet, state:', room.state, '- will set up when connected')
+      // Set up a listener to retry when room connects
+      const handleConnected = () => {
+        console.log('[AI Insights] ✅ Room connected, setting up pose detection now')
+        // The useEffect will re-run when room.state changes
+      }
+      room.on(RoomEvent.Connected, handleConnected)
+      return () => {
+        room.off(RoomEvent.Connected, handleConnected)
+      }
     }
 
     // Only set up intervals once
     if (setupCompleteRef.current) {
-      console.log('[AI Insights] Intervals already set up, skipping')
+      console.log('[AI Insights] ✅ Intervals already set up, skipping')
+      // Make sure flag is set even if already set up
+      ;(window as any).__poseDetectionSetup = true
       return
     }
 
-    console.log('[AI Insights] Setting up pose detection intervals for the first time')
+    console.log('[AI Insights] 🚀 Setting up pose detection intervals for the first time')
+    console.log('[AI Insights] 📊 Room state:', room.state)
+    console.log('[AI Insights] 📊 Local participant:', room.localParticipant?.identity)
+    console.log('[AI Insights] 📊 Remote participants:', Array.from(room.remoteParticipants.values()).map(p => p.identity))
+    
+    // Set flag IMMEDIATELY so UI knows setup is in progress
+    ;(window as any).__poseDetectionSetup = true
+    console.log('[AI Insights] ✅ Setup flag set to true (setup in progress)')
 
     // Clear any existing intervals/timeouts before setting up new ones (safety check)
     if (frameCollectionIntervalRef.current) {
@@ -1368,31 +1452,27 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         
         console.log(`[AI Insights] 🎯 Processing ${entries.length} participant(s) - will process first one this cycle`);
 
-        // Only process the first participant to reduce load
-        // Skip coach for non-mocap sessions (coach is just observing, not being analyzed)
-        let participantToProcess = entries.find(([pid]) => {
-          const isMocapSession = sessionType === 'mocap'
-          const isCoach = sessionOwnerId && pid === sessionOwnerId
-          // For mocap: process coach (they're pointing camera at athlete)
-          // For non-mocap: skip coach, process participants
-          return isMocapSession || !isCoach
+        // Process ALL participants - removed coach filtering to allow pose detection for everyone
+        // Process the first available participant with a valid video element
+        let participantToProcess = entries.find(([pid, videoEl]) => {
+          // Just check if video element exists and is valid
+          return videoEl && videoEl.readyState >= 2 // HAVE_CURRENT_DATA or higher
         })
         
-        // If no non-coach participant found, use first one anyway (for mocap or if coach is the only one)
+        // If no participant found with valid video, use first one anyway (fallback)
         if (!participantToProcess) {
           participantToProcess = entries[0]
+          console.log('[AI Insights] ⚠️ No participant with valid video found, using first entry as fallback')
         }
         
         const [participantId, videoElement] = participantToProcess
         
-        // Log which participant we're processing and why
-        const isMocapSession = sessionType === 'mocap'
-        const isCoach = sessionOwnerId && participantId === sessionOwnerId
+        // Log which participant we're processing (no coach filtering)
         console.log(`[AI Insights] 🎯 Selected participant for pose detection: ${participantId}`, {
-          isCoach,
-          isMocapSession,
           totalEntries: entries.length,
-          allParticipants: entries.map(([pid]) => pid)
+          allParticipants: entries.map(([pid]) => pid),
+          videoReadyState: videoElement?.readyState,
+          videoDimensions: videoElement ? `${videoElement.videoWidth}x${videoElement.videoHeight}` : 'N/A'
         })
         
         if (!videoElement) {
@@ -1552,16 +1632,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           continue
         }
 
-        // Filter out coach - only analyze subjects/participants (not the coach)
+        // Process ALL participants - removed coach filtering
         const currentSessionOwnerId = sessionOwnerId
         const currentSessionType = sessionType
-        console.log(`[AI Insights] 🔍 Checking participant ${participantId} for analysis - sessionOwnerId: ${currentSessionOwnerId}, sessionType: ${currentSessionType}, poseDataCount: ${poseDataArray.length}`)
+        console.log(`[AI Insights] 🔍 Processing participant ${participantId} for analysis - sessionOwnerId: ${currentSessionOwnerId}, sessionType: ${currentSessionType}, poseDataCount: ${poseDataArray.length}`)
         
-        if (currentSessionOwnerId && participantId === currentSessionOwnerId && currentSessionType !== 'mocap') {
-          console.log(`[AI Insights] ⏭️ Skipping coach (${participantId}) - only analyzing subjects/participants (not coach) for non-mocap sessions`)
-          continue
-        }
-
+        // No coach filtering - process everyone
         console.log(`[AI Insights] ✅ Will analyze participant ${participantId} (${poseDataArray.length} pose data points)`)
 
         console.log(`[AI Insights] 🔬 Analyzing ${poseDataArray.length} pose data points for participant: ${participantId}`)
@@ -1837,9 +1913,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       processPoseDetection()
     }, 3000) // Every 3 seconds to reduce load
     
-    // Set global flag for status checking
-    ;(window as any).__poseDetectionSetup = true
+    // Flag was already set at the start, just confirm it
     console.log('[AI Insights] ✅ Pose detection intervals set up')
+    console.log('[AI Insights] ✅ Global flag __poseDetectionSetup:', (window as any).__poseDetectionSetup)
+    
+    // Mark setup as complete
+    setupCompleteRef.current = true
 
     // Analyze collected pose data every 5 seconds for faster metric updates
     // Start analysis after 5 seconds (to collect at least 2-3 poses first), then repeat every 5 seconds
@@ -1887,8 +1966,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       poseDetectorsRef.current.clear()
       // Reset setup flag so it can be set up again if needed
       setupCompleteRef.current = false
+      ;(window as any).__poseDetectionSetup = false
     }
-  }, [room]) // Only depend on room - use refs for other values
+  }, [room, room?.state]) // Depend on room and room state - will re-run when room connects
 
   // Group insights by participant
   // For mocap sessions: insights are already attributed to subject_id, so don't filter by sessionOwnerId
@@ -2144,6 +2224,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     } finally {
       setIsExporting(false)
     }
+  }
+
+  // Conditionally render UI - pose detection runs for both coach and participants
+  if (!isCoach) {
+    // Hide UI for non-coaches, but pose detection still runs in the background
+    return (
+      <div className="h-full flex items-center justify-center p-8" style={{ display: 'none' }}>
+        <div className="text-center text-muted-foreground">
+          <p className="text-sm">AI insights and metrics are only available to coaches.</p>
+        </div>
+      </div>
+    )
   }
 
   return (

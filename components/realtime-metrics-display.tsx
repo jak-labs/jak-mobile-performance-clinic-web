@@ -26,24 +26,13 @@ export function RealtimeMetricsDisplay({
   // Check status periodically
   useEffect(() => {
     const checkStatus = () => {
-      // If user is not a coach, don't show metrics
-      if (!isCoach) {
-        setStatusMessage("Metrics only available for coaches")
-        setShowError(true)
-        return
-      }
-
+      // Pose detection runs for both coach and participants
+      // Participants can see their own metrics in real-time
+      
       // Check if pose detection is set up
       const poseDetectionSetup = (window as any).__poseDetectionSetup
       if (!poseDetectionSetup) {
         setStatusMessage("Waiting for pose detection setup...")
-        return
-      }
-      
-      // Check if room is connected
-      const roomConnected = (window as any).__livekitRoomConnected !== false
-      if (!roomConnected) {
-        setStatusMessage("Waiting for room connection...")
         return
       }
 

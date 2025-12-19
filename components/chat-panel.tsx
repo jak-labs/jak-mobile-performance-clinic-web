@@ -114,7 +114,36 @@ export function ChatPanel({ sessionId, sessionOwnerId, participantInfo, localPar
     }
   }
 
-  // Send welcome message when participants join (immediately)
+  // Check if welcome message was already sent (from database)
+  const checkWelcomeMessageSent = async (participantId: string): Promise<boolean> => {
+    if (!sessionId) return false
+    
+    try {
+      const response = await fetch(`/api/chat/messages/${sessionId}`)
+      if (response.ok) {
+        const data = await response.json()
+        const messages = data.messages || []
+        
+        // Check if there's already a welcome message for this participant
+        const hasWelcomeMessage = messages.some((msg: ChatMessage) => 
+          msg.message_type === 'ai_agent' &&
+          msg.metadata?.message_type === 'welcome' &&
+          msg.metadata?.participant_id === participantId
+        )
+        
+        if (hasWelcomeMessage) {
+          console.log(`[Chat] ✅ Welcome message already exists in database for ${participantId}`)
+          return true
+        }
+      }
+    } catch (error) {
+      console.error('[Chat] Error checking welcome message:', error)
+    }
+    
+    return false
+  }
+
+  // Send welcome message when participants join (only once per participant)
   useEffect(() => {
     if (!sessionId || !room || room.state !== ConnectionState.Connected) {
       console.log('[Chat] 👋 Welcome message effect skipped - missing requirements:', {
@@ -126,7 +155,7 @@ export function ChatPanel({ sessionId, sessionOwnerId, participantInfo, localPar
     }
 
     // Listen for participant connected events
-    const handleParticipantConnected = (participant: any) => {
+    const handleParticipantConnected = async (participant: any) => {
       if (!participant || !participant.identity) return
 
       const participantId = participant.identity
@@ -137,9 +166,18 @@ export function ChatPanel({ sessionId, sessionOwnerId, participantInfo, localPar
         return
       }
 
-      // Skip if already sent welcome message
+      // Skip if already sent welcome message (in-memory check)
       if (welcomeMessageSentRef.current.has(participantId)) {
-        console.log(`[Chat] 👋 Already sent welcome to: ${participantId}`)
+        console.log(`[Chat] 👋 Already sent welcome to: ${participantId} (in-memory check)`)
+        return
+      }
+
+      // Check database to see if welcome message was already sent
+      const alreadySent = await checkWelcomeMessageSent(participantId)
+      if (alreadySent) {
+        console.log(`[Chat] 👋 Welcome message already exists in database for ${participantId}, skipping`)
+        // Mark in memory so we don't check again
+        welcomeMessageSentRef.current.add(participantId)
         return
       }
 
@@ -149,39 +187,54 @@ export function ChatPanel({ sessionId, sessionOwnerId, participantInfo, localPar
       // Get participant name
       const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
       
-      console.log(`[Chat] 👋 Participant connected: ${participantName} (${participantId}) - sending welcome message immediately`)
+      console.log(`[Chat] 👋 Participant connected: ${participantName} (${participantId}) - sending welcome message`)
       
-      // Send welcome message immediately
+      // Send welcome message
       sendWelcomeMessage(participantId, participantName)
     }
 
-    // Check existing participants when effect runs
-    const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
-    allParticipants.forEach(participant => {
-      if (!participant) return
-      const participantId = participant.identity
+    // Check existing participants when effect runs (only once on mount)
+    const checkExistingParticipants = async () => {
+      const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
       
-      // Skip coach for non-mocap sessions
-      if (sessionOwnerId && participantId === sessionOwnerId) {
-        return
+      for (const participant of allParticipants) {
+        if (!participant) continue
+        const participantId = participant.identity
+        
+        // Skip coach for non-mocap sessions
+        if (sessionOwnerId && participantId === sessionOwnerId) {
+          continue
+        }
+
+        // Skip if already sent welcome message (in-memory check)
+        if (welcomeMessageSentRef.current.has(participantId)) {
+          continue
+        }
+
+        // Check database to see if welcome message was already sent
+        const alreadySent = await checkWelcomeMessageSent(participantId)
+        if (alreadySent) {
+          console.log(`[Chat] 👋 Welcome message already exists in database for ${participantId}, skipping`)
+          // Mark in memory so we don't check again
+          welcomeMessageSentRef.current.add(participantId)
+          continue
+        }
+
+        // Mark as sent immediately to prevent duplicates
+        welcomeMessageSentRef.current.add(participantId)
+
+        // Get participant name
+        const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
+        
+        console.log(`[Chat] 👋 Existing participant found: ${participantName} (${participantId}) - sending welcome message`)
+        
+        // Send welcome message
+        sendWelcomeMessage(participantId, participantName)
       }
+    }
 
-      // Skip if already sent welcome message
-      if (welcomeMessageSentRef.current.has(participantId)) {
-        return
-      }
-
-      // Mark as sent immediately to prevent duplicates
-      welcomeMessageSentRef.current.add(participantId)
-
-      // Get participant name
-      const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
-      
-      console.log(`[Chat] 👋 Existing participant found: ${participantName} (${participantId}) - sending welcome message immediately`)
-      
-      // Send welcome message immediately
-      sendWelcomeMessage(participantId, participantName)
-    })
+    // Check existing participants once on mount
+    checkExistingParticipants()
 
     // Listen for new participants joining
     room.on(RoomEvent.ParticipantConnected, handleParticipantConnected)
@@ -190,7 +243,7 @@ export function ChatPanel({ sessionId, sessionOwnerId, participantInfo, localPar
     return () => {
       room.off(RoomEvent.ParticipantConnected, handleParticipantConnected)
     }
-  }, [sessionId, room, room?.state, participantInfo, sessionOwnerId])
+  }, [sessionId, room, room?.state]) // Removed participantInfo and sessionOwnerId from dependencies to prevent re-runs
 
   // Fetch messages on mount and when sessionId changes
   useEffect(() => {
