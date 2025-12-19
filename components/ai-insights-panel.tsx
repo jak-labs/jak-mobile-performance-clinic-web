@@ -1014,6 +1014,19 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         const decoder = new TextDecoder()
         const message = JSON.parse(decoder.decode(payload))
         
+        // Handle real-time metrics updates from other participants
+        if (message.type === 'realtime-metrics') {
+          const { participantId, angles, metrics } = message
+          console.log(`[AI Insights] 📥 Received real-time metrics for ${participantId} from ${participant?.identity || 'unknown'}`)
+          
+          // Update the realtime metrics context so coach can see participant metrics
+          if (participantId && angles && metrics) {
+            setRealtimeData(participantId, { angles, metrics })
+            console.log(`[AI Insights] ✅ Updated realtime metrics context for ${participantId}`)
+          }
+          return
+        }
+        
         if (message.type === 'ai-insight') {
           const newInsight: AIInsight = {
             participantId: message.participantId,
@@ -1055,7 +1068,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     return () => {
       room.off('dataReceived', handleDataReceived)
     }
-  }, [room])
+  }, [room, setRealtimeData])
 
   // Set up video elements for pose detection
   useEffect(() => {
@@ -1687,6 +1700,28 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
               angles: Object.keys(angles).filter(k => angles[k as keyof typeof angles] !== null).length
             })
             setRealtimeData(participantId, { angles, metrics })
+            
+            // Share metrics with all participants (including coach) via LiveKit data channel
+            if (room && room.state === ConnectionState.Connected && room.localParticipant) {
+              try {
+                const metricsMessage = {
+                  type: 'realtime-metrics',
+                  participantId: participantId,
+                  angles: angles,
+                  metrics: metrics,
+                  timestamp: new Date().toISOString()
+                }
+                
+                const data = JSON.stringify(metricsMessage)
+                room.localParticipant.publishData(
+                  new TextEncoder().encode(data),
+                  { reliable: true }
+                )
+                console.log(`[AI Insights] 📡 Published real-time metrics via LiveKit data channel for ${participantId}`)
+              } catch (error) {
+                console.error(`[AI Insights] ❌ Failed to publish metrics via data channel:`, error)
+              }
+            }
 
             // Get or create pose data buffer for this participant
             if (!poseDataBufferRef.current.has(participantId)) {
