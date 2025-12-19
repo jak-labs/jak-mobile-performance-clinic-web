@@ -496,9 +496,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
     // Post a message for each participant with metrics
     for (const [participantId, metric] of Object.entries(metricsToPost)) {
-      // Skip coach metrics for non-mocap sessions
-      if (currentSessionOwnerId && participantId === currentSessionOwnerId && currentSessionType !== 'mocap') {
-        console.log(`[AI Insights] ⏭️ Skipping coach metrics for ${participantId}`)
+      // Skip coach metrics - only analyze participants
+      if (currentSessionOwnerId && participantId === currentSessionOwnerId) {
+        console.log(`[AI Insights] ⏭️ Skipping coach metrics for ${participantId} - only analyzing participants`)
         continue
       }
 
@@ -1149,6 +1149,12 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       let foundTracks = false
       
       allParticipants.forEach(p => {
+        // Skip coach - only analyze participants
+        if (p.identity === sessionOwnerId) {
+          console.log(`[AI Insights] ⏭️ Skipping coach (${p.identity}) - only analyzing participants`)
+          return
+        }
+        
         const cameraTracks = Array.from(p.trackPublications.values()).filter(t => 
           t.kind === 'video' && t.source === Track.Source.Camera
         )
@@ -1255,10 +1261,16 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         }))
       })))
 
-      // Create video elements for each track
+      // Create video elements for each track (excluding coach)
       tracks.forEach((trackRef) => {
       if (!trackRef.participant) {
         console.log('[AI Insights] ⚠️ Skipping track - missing participant')
+        return
+      }
+      
+      // Skip coach - only analyze participants
+      if (trackRef.participant.identity === sessionOwnerId) {
+        console.log(`[AI Insights] ⏭️ Skipping coach track (${trackRef.participant.identity}) - only analyzing participants`)
         return
       }
 
@@ -1554,25 +1566,43 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         
         console.log(`[AI Insights] 🎯 Processing ${entries.length} participant(s) - will process first one this cycle`);
 
-        // Process ALL participants - removed coach filtering to allow pose detection for everyone
+        // Process only participants (exclude coach)
+        // Filter out coach first, then find first available participant with valid video element
+        const participantEntries = entries.filter(([pid]) => {
+          // Skip coach - only analyze participants
+          if (pid === sessionOwnerId) {
+            console.log(`[AI Insights] ⏭️ Skipping coach (${pid}) in pose detection`)
+            return false
+          }
+          return true
+        })
+        
+        if (participantEntries.length === 0) {
+          console.log('[AI Insights] ⚠️ No participant video elements available (only coach found)')
+          ;(window as any).__poseDetectionStatus = 'no_participant_videos'
+          return
+        }
+        
         // Process the first available participant with a valid video element
-        let participantToProcess = entries.find(([pid, videoEl]) => {
+        let participantToProcess = participantEntries.find(([pid, videoEl]) => {
           // Just check if video element exists and is valid
           return videoEl && videoEl.readyState >= 2 // HAVE_CURRENT_DATA or higher
         })
         
         // If no participant found with valid video, use first one anyway (fallback)
         if (!participantToProcess) {
-          participantToProcess = entries[0]
+          participantToProcess = participantEntries[0]
           console.log('[AI Insights] ⚠️ No participant with valid video found, using first entry as fallback')
         }
         
         const [participantId, videoElement] = participantToProcess
         
-        // Log which participant we're processing (no coach filtering)
+        // Log which participant we're processing (coach filtered out)
         console.log(`[AI Insights] 🎯 Selected participant for pose detection: ${participantId}`, {
           totalEntries: entries.length,
+          participantEntries: participantEntries.length,
           allParticipants: entries.map(([pid]) => pid),
+          filteredParticipants: participantEntries.map(([pid]) => pid),
           videoReadyState: videoElement?.readyState,
           videoDimensions: videoElement ? `${videoElement.videoWidth}x${videoElement.videoHeight}` : 'N/A'
         })
@@ -1734,12 +1764,16 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           continue
         }
 
-        // Process ALL participants - removed coach filtering
+        // Skip coach - only analyze participants
+        if (participantId === sessionOwnerId) {
+          console.log(`[AI Insights] ⏭️ Skipping coach (${participantId}) in movement analysis - only analyzing participants`)
+          continue
+        }
+
         const currentSessionOwnerId = sessionOwnerId
         const currentSessionType = sessionType
         console.log(`[AI Insights] 🔍 Processing participant ${participantId} for analysis - sessionOwnerId: ${currentSessionOwnerId}, sessionType: ${currentSessionType}, poseDataCount: ${poseDataArray.length}`)
         
-        // No coach filtering - process everyone
         console.log(`[AI Insights] ✅ Will analyze participant ${participantId} (${poseDataArray.length} pose data points)`)
 
         console.log(`[AI Insights] 🔬 Analyzing ${poseDataArray.length} pose data points for participant: ${participantId}`)
