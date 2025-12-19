@@ -1016,12 +1016,54 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
 
     console.log(`[AI Insights] 🎥 Setting up video elements. Found ${tracks.length} camera tracks`)
+    
+    if (tracks.length === 0) {
+      console.warn('[AI Insights] ⚠️ No camera tracks found! This might mean:')
+      console.warn('[AI Insights]   1. Participants haven\'t enabled their cameras yet')
+      console.warn('[AI Insights]   2. Tracks aren\'t subscribed yet')
+      console.warn('[AI Insights]   3. Room is still connecting')
+      
+      // Try to get tracks directly from participants as fallback
+      const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
+      console.log(`[AI Insights] 🔍 Checking ${allParticipants.length} participants directly for camera tracks...`)
+      
+      allParticipants.forEach(p => {
+        const cameraTracks = Array.from(p.trackPublications.values()).filter(t => 
+          t.kind === 'video' && t.source === Track.Source.Camera
+        )
+        console.log(`[AI Insights]   Participant ${p.identity}: ${cameraTracks.length} camera track(s)`, {
+          tracks: cameraTracks.map(t => ({
+            trackSid: t.trackSid,
+            isSubscribed: t.isSubscribed,
+            hasTrack: !!t.track,
+            hasMediaStreamTrack: !!t.track?.mediaStreamTrack
+          }))
+        })
+        
+        // If track exists but isn't subscribed, subscribe to it
+        cameraTracks.forEach(trackPub => {
+          if (!trackPub.isSubscribed && trackPub.track) {
+            console.log(`[AI Insights] 🔄 Subscribing to track ${trackPub.trackSid} for ${p.identity}`)
+            trackPub.setSubscribed(true)
+          }
+        })
+      })
+      
+      // Return early but set up a retry
+      setTimeout(() => {
+        console.log('[AI Insights] 🔄 Retrying video element setup after 2 seconds...')
+        // This will trigger the useEffect again when tracks become available
+      }, 2000)
+      return
+    }
+    
     console.log(`[AI Insights] 🎥 Track details:`, tracks.map(t => ({
       participantId: t.participant?.identity,
       participantName: t.participant?.name,
       hasPublication: !!t.publication,
       hasPublicationTrack: !!t.publication?.track,
       hasTrack: !!t.track,
+      hasMediaStreamTrack: !!t.track?.mediaStreamTrack || !!t.publication?.track?.mediaStreamTrack,
       trackKind: t.publication?.track?.kind || t.track?.kind,
       trackSource: t.publication?.track?.source || t.track?.source,
       isSubscribed: t.publication?.isSubscribed,
@@ -1076,12 +1118,27 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       }
 
       // Try to get track from publication first, then from trackRef directly
-      const track = trackRef.publication?.track || trackRef.track
+      let track = trackRef.publication?.track || trackRef.track
+      
+      // If no track but we have a publication, try subscribing to it
+      if (!track && trackRef.publication) {
+        console.log(`[AI Insights] 🔄 Track not available, attempting to subscribe for ${trackRef.participant.identity}`)
+        trackRef.publication.setSubscribed(true)
+        // Wait a bit for subscription to complete
+        setTimeout(() => {
+          track = trackRef.publication?.track || trackRef.track
+          if (track) {
+            console.log(`[AI Insights] ✅ Track available after subscription for ${trackRef.participant.identity}`)
+          }
+        }, 500)
+      }
+      
       if (!track) {
         console.log('[AI Insights] ⚠️ Skipping track - no track available', {
           participantId: trackRef.participant.identity,
           hasPublication: !!trackRef.publication,
-          hasTrack: !!trackRef.track
+          hasTrack: !!trackRef.track,
+          publicationTrackSid: trackRef.publication?.trackSid
         })
         return
       }
@@ -1152,41 +1209,44 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     
     console.log(`[AI Insights] 📊 Total video elements: ${videoElementsRef.current.size}`)
     
+    // Listen for new tracks being published
+    const handleTrackPublished = (publication: TrackPublication, participant: any) => {
+      if (publication.kind === 'video' && publication.source === Track.Source.Camera) {
+        console.log(`[AI Insights] 🎬 New camera track published for ${participant.identity}`)
+        // Subscribe to the track
+        if (!publication.isSubscribed) {
+          publication.setSubscribed(true)
+        }
+        // The useEffect will re-run when tracks change, so video element will be created
+      }
+    }
+    
+    // Listen for track subscriptions
+    const handleTrackSubscribed = (track: any, publication: TrackPublication, participant: any) => {
+      if (track.kind === 'video' && publication.source === Track.Source.Camera) {
+        console.log(`[AI Insights] ✅ Camera track subscribed for ${participant.identity}`)
+        // The useEffect will re-run when tracks change
+      }
+    }
+    
+    room.on('trackPublished', handleTrackPublished)
+    room.on('trackSubscribed', handleTrackSubscribed)
+    
     // If pose detection is already set up but hasn't started yet, trigger it now
     if (setupCompleteRef.current && frameCollectionIntervalRef.current && videoElementsRef.current.size > 0) {
       console.log('[AI Insights] Video elements added after setup, triggering immediate pose detection')
-      // Access the processPoseDetection function from the closure
-      // We'll trigger it by checking if the interval is running
       setTimeout(() => {
-        // The interval should pick it up, but trigger manually once
         if (room && room.state === ConnectionState.Connected) {
           console.log('[AI Insights] Manually triggering pose detection after video element creation')
-          // We can't directly call processPoseDetection here, but the interval will catch it
-          // Set a flag to indicate we should process
           ;(window as any).__triggerPoseDetection = true
         }
       }, 1000)
     }
     
-    // If pose detection is already set up, trigger it now that we have video elements
-    if (setupCompleteRef.current && frameCollectionIntervalRef.current) {
-      console.log('[AI Insights] Video elements added, triggering immediate pose detection')
-      // Trigger pose detection immediately since we now have video elements
-      setTimeout(() => {
-        const processPoseDetection = async () => {
-          if (!room || room.state !== ConnectionState.Connected) return
-          const entries = Array.from(videoElementsRef.current.entries())
-          if (entries.length === 0) return
-          
-          // Import the function logic here or call it directly
-          // For now, just trigger the interval to run immediately
-          console.log('[AI Insights] Manually triggering pose detection after video element creation')
-        }
-        processPoseDetection()
-      }, 1000)
-    }
-
     return () => {
+      room.off('trackPublished', handleTrackPublished)
+      room.off('trackSubscribed', handleTrackSubscribed)
+      
       // Cleanup video elements and pose detectors
       videoElementsRef.current.forEach((video, participantId) => {
         video.srcObject = null
