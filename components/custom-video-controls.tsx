@@ -1,117 +1,127 @@
+
 "use client"
 
-import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react"
+import { PhoneOff } from "lucide-react"
 import { Track } from "livekit-client"
-import { useRoomContext } from "@livekit/components-react"
+import { useRoomContext, TrackToggle, MediaDeviceMenu } from "@livekit/components-react"
 import { useRouter } from "next/navigation"
-import { useState, useEffect } from "react"
 
 interface CustomVideoControlsProps {
   sessionDuration?: string
+  isRecording?: boolean
+  onStartRecording?: () => void
+  onStopRecording?: () => void
+  showRecordButton?: boolean
 }
 
-export function CustomVideoControls({ sessionDuration }: CustomVideoControlsProps) {
+export function CustomVideoControls({ 
+  sessionDuration, 
+  isRecording = false,
+  onStartRecording,
+  onStopRecording,
+  showRecordButton = false
+}: CustomVideoControlsProps) {
   const room = useRoomContext()
-  const localParticipant = room.localParticipant
   const router = useRouter()
-  
-  // Track mic and camera states reactively
-  const [isMicMuted, setIsMicMuted] = useState(true)
-  const [isCameraOff, setIsCameraOff] = useState(true)
-
-  useEffect(() => {
-    if (!localParticipant) return
-
-    const updateTrackStates = () => {
-      const micPublications = Array.from(localParticipant.audioTrackPublications.values())
-      const cameraPublications = Array.from(localParticipant.videoTrackPublications.values())
-      const micPublication = micPublications.find(pub => pub.source === Track.Source.Microphone)
-      const cameraPublication = cameraPublications.find(pub => pub.source === Track.Source.Camera)
-      
-      setIsMicMuted(micPublication ? micPublication.isMuted : true)
-      setIsCameraOff(!cameraPublication || !cameraPublication.isSubscribed || cameraPublication.isMuted)
-    }
-
-    updateTrackStates()
-
-    // Listen for track publication changes
-    const handleTrackPublished = () => updateTrackStates()
-    const handleTrackUnpublished = () => updateTrackStates()
-    const handleTrackMuted = () => updateTrackStates()
-    const handleTrackUnmuted = () => updateTrackStates()
-
-    localParticipant.on('trackPublished', handleTrackPublished)
-    localParticipant.on('trackUnpublished', handleTrackUnpublished)
-    localParticipant.on('trackMuted', handleTrackMuted)
-    localParticipant.on('trackUnmuted', handleTrackUnmuted)
-
-    return () => {
-      localParticipant.off('trackPublished', handleTrackPublished)
-      localParticipant.off('trackUnpublished', handleTrackUnpublished)
-      localParticipant.off('trackMuted', handleTrackMuted)
-      localParticipant.off('trackUnmuted', handleTrackUnmuted)
-    }
-  }, [localParticipant])
 
   return (
     <>
-      {/* Controls - White pill-shaped bar with simple black icons */}
+      {/* Controls - Dark rounded bar with icon-only buttons and dropdown chevrons */}
       <div 
-        className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3 md:gap-4 px-4 md:px-6 py-2.5 md:py-3 rounded-full z-50 max-w-[calc(100vw-2rem)] md:max-w-none bg-white shadow-lg"
+        className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-2 rounded-full z-50 bg-black/70 backdrop-blur-sm border border-white/10 shadow-lg"
         style={{ 
           bottom: 'calc(3vh + env(safe-area-inset-bottom, 0))'
         }}
       >
-        <button
-          onClick={async () => {
-            const micPub = Array.from(localParticipant.audioTrackPublications.values())
-              .find(pub => pub.source === Track.Source.Microphone)
-            if (micPub?.track) {
-              if (micPub.isMuted) {
-                await micPub.track.unmute()
-              } else {
-                await micPub.track.mute()
-              }
-            }
-          }}
-          className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
-        >
-          {isMicMuted ? (
-            <MicOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-          ) : (
-            <Mic className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-          )}
-        </button>
-        <button
-          onClick={async () => {
-            const cameraPub = Array.from(localParticipant.videoTrackPublications.values())
-              .find(pub => pub.source === Track.Source.Camera)
-            if (cameraPub?.track) {
-              if (cameraPub.isMuted) {
-                await cameraPub.track.unmute()
-              } else {
-                await cameraPub.track.mute()
-              }
-            }
-          }}
-          className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] bg-transparent hover:bg-gray-100/50 text-black rounded-full h-10 w-10 md:h-12 md:w-12"
-        >
-          {isCameraOff ? (
-            <VideoOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-          ) : (
-            <Video className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-          )}
-        </button>
+        {/* Microphone with dropdown - icon only */}
+        <div className="lk-button-group flex items-center">
+          <TrackToggle
+            source={Track.Source.Microphone}
+            showIcon={true}
+            className="text-white hover:bg-white/10 rounded-full p-2 transition-colors"
+          />
+          <div className="lk-button-group-menu">
+            <MediaDeviceMenu kind="audioinput" />
+          </div>
+        </div>
+
+        {/* Camera with dropdown - icon only */}
+        <div className="lk-button-group flex items-center">
+          <TrackToggle
+            source={Track.Source.Camera}
+            showIcon={true}
+            className="text-white hover:bg-white/10 rounded-full p-2 transition-colors"
+          />
+          <div className="lk-button-group-menu">
+            <MediaDeviceMenu kind="videoinput" />
+          </div>
+        </div>
+
+        {/* Leave button - icon only */}
         <button
           onClick={async () => {
             await room.disconnect()
             router.push('/')
           }}
-          className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60 rounded-full h-10 w-10 md:h-12 md:w-12"
+          className="inline-flex items-center justify-center text-white hover:bg-white/10 rounded-full p-2 transition-colors"
         >
-          <PhoneOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
+          <PhoneOff className="h-5 w-5" strokeWidth={2} />
         </button>
       </div>
+
+      {/* Record button - separate, large, positioned next to control panel */}
+      {showRecordButton && (
+        <button
+          onClick={isRecording ? onStopRecording : onStartRecording}
+          className="absolute z-50 flex items-center justify-center transition-all hover:scale-105"
+          style={{ 
+            bottom: 'calc(3vh + env(safe-area-inset-bottom, 0) + 5px)',
+            left: 'calc(50% + 110px)'
+          }}
+        >
+          <div className={`relative flex items-center gap-2.5 border-2 border-white rounded-lg px-5 py-3.5 ${isRecording ? 'bg-red-600/20' : 'bg-black/70 backdrop-blur-sm'} shadow-lg`}>
+            <div className="relative">
+              {isRecording && (
+                <div className="absolute inset-0 h-3.5 w-3.5 rounded-full bg-red-600 animate-ping opacity-75" />
+              )}
+              <div className="relative h-3.5 w-3.5 rounded-full bg-red-600" />
+            </div>
+            <span className="text-base font-bold text-white leading-none">RECORD</span>
+          </div>
+        </button>
+      )}
+
+      {/* Custom styles for LiveKit components */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          .lk-button-group button {
+            color: white !important;
+            background: transparent !important;
+            border: none !important;
+            padding: 0.5rem !important;
+          }
+          .lk-button-group button svg {
+            color: white !important;
+            stroke: white !important;
+          }
+          .lk-button-group button:hover {
+            background-color: rgba(255, 255, 255, 0.1) !important;
+          }
+          .lk-button-group-menu {
+            margin-left: 0;
+          }
+          .lk-button-group-menu button {
+            padding: 0.5rem !important;
+            min-width: auto !important;
+            color: white !important;
+            background: transparent !important;
+          }
+          .lk-button-group-menu button svg {
+            color: white !important;
+            stroke: white !important;
+          }
+        `
+      }} />
 
       {/* Session info - Clean, minimal badges */}
       {sessionDuration && (

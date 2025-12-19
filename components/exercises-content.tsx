@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Search, Filter, Play, BookOpen, Target, Clock, TrendingUp } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Search, Filter, Play, BookOpen, Target, Clock, TrendingUp, UserPlus, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +14,17 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { useSession } from "next-auth/react"
+import { toast } from "sonner"
 
 interface Exercise {
   id: string
@@ -40,7 +51,8 @@ const exerciseCategories = [
   { id: "sport-specific", name: "Sport-Specific", emoji: "⚽" },
 ]
 
-const exercises: Exercise[] = [
+// Hardcoded exercises - will be replaced by database fetch
+const defaultExercises: Exercise[] = [
   {
     id: "1",
     name: "Dynamic Hip Flexor Stretch",
@@ -326,10 +338,59 @@ const exercises: Exercise[] = [
 ]
 
 export default function ExercisesContent() {
+  const { data: session } = useSession()
+  const [exercises, setExercises] = useState<Exercise[]>(defaultExercises)
+  const [isLoadingExercises, setIsLoadingExercises] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>("all")
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null)
+  const [isPrescribeDialogOpen, setIsPrescribeDialogOpen] = useState(false)
+  const [clients, setClients] = useState<Array<{ subject_id: string; name: string }>>([])
+  const [selectedClients, setSelectedClients] = useState<string[]>([])
+  const [weeklyFrequency, setWeeklyFrequency] = useState(3)
+  const [isPrescribing, setIsPrescribing] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const exercisesPerPage = 12
+
+  // Fetch exercises from database
+  useEffect(() => {
+    const fetchExercises = async () => {
+      try {
+        const response = await fetch("/api/exercise-catalog")
+        if (response.ok) {
+          const data = await response.json()
+          if (data.exercises && data.exercises.length > 0) {
+            setExercises(data.exercises)
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching exercises:", error)
+      } finally {
+        setIsLoadingExercises(false)
+      }
+    }
+
+    fetchExercises()
+  }, [])
+
+  // Fetch clients when prescribe dialog opens
+  useEffect(() => {
+    if (isPrescribeDialogOpen && session) {
+      const fetchClients = async () => {
+        try {
+          const response = await fetch("/api/subjects")
+          if (response.ok) {
+            const data = await response.json()
+            setClients(data.subjects || [])
+          }
+        } catch (error) {
+          console.error("Error fetching clients:", error)
+        }
+      }
+      fetchClients()
+    }
+  }, [isPrescribeDialogOpen, session])
 
   const filteredExercises = exercises.filter((exercise) => {
     const matchesSearch = exercise.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -341,6 +402,69 @@ export default function ExercisesContent() {
 
     return matchesSearch && matchesCategory && matchesDifficulty
   })
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredExercises.length / exercisesPerPage)
+  const startIndex = (currentPage - 1) * exercisesPerPage
+  const endIndex = startIndex + exercisesPerPage
+  const paginatedExercises = filteredExercises.slice(startIndex, endIndex)
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, selectedCategory, selectedDifficulty])
+
+  const handlePrescribe = () => {
+    if (!selectedExercise) return
+    setSelectedClients([])
+    setWeeklyFrequency(3)
+    setIsPrescribeDialogOpen(true)
+  }
+
+  const handlePrescribeSubmit = async () => {
+    if (!selectedExercise || selectedClients.length === 0) {
+      toast.error("Please select at least one client")
+      return
+    }
+
+    setIsPrescribing(true)
+    try {
+      const response = await fetch("/api/prescribed-exercises/prescribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exerciseId: selectedExercise.id,
+          subjectIds: selectedClients,
+          weeklyFrequency,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to prescribe exercise")
+      }
+
+      toast.success("Exercise prescribed successfully", {
+        description: `Prescribed to ${selectedClients.length} client(s)`,
+      })
+      setIsPrescribeDialogOpen(false)
+      setSelectedExercise(null)
+    } catch (error: any) {
+      toast.error("Error prescribing exercise", {
+        description: error.message,
+      })
+    } finally {
+      setIsPrescribing(false)
+    }
+  }
+
+  const toggleClient = (clientId: string) => {
+    setSelectedClients((prev) =>
+      prev.includes(clientId)
+        ? prev.filter((id) => id !== clientId)
+        : [...prev, clientId]
+    )
+  }
 
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
@@ -408,13 +532,20 @@ export default function ExercisesContent() {
       </div>
 
       {/* Results Count */}
-      <div className="mb-4 text-sm text-muted-foreground">
-        Showing {filteredExercises.length} of {exercises.length} exercises
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          Showing {startIndex + 1}-{Math.min(endIndex, filteredExercises.length)} of {filteredExercises.length} exercises
+        </div>
+        {totalPages > 1 && (
+          <div className="text-sm text-muted-foreground">
+            Page {currentPage} of {totalPages}
+          </div>
+        )}
       </div>
 
       {/* Exercise Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredExercises.map((exercise) => (
+        {paginatedExercises.map((exercise) => (
           <Card
             key={exercise.id}
             className="cursor-pointer hover:shadow-lg transition-shadow"
@@ -458,6 +589,61 @@ export default function ExercisesContent() {
           </Card>
         ))}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Previous
+          </Button>
+          
+          <div className="flex items-center gap-1">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+              // Show first page, last page, current page, and pages around current
+              if (
+                page === 1 ||
+                page === totalPages ||
+                (page >= currentPage - 1 && page <= currentPage + 1)
+              ) {
+                return (
+                  <Button
+                    key={page}
+                    variant={currentPage === page ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setCurrentPage(page)}
+                    className="min-w-[40px]"
+                  >
+                    {page}
+                  </Button>
+                )
+              } else if (page === currentPage - 2 || page === currentPage + 2) {
+                return (
+                  <span key={page} className="px-2 text-muted-foreground">
+                    ...
+                  </span>
+                )
+              }
+              return null
+            })}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+        </div>
+      )}
 
       {/* Exercise Detail Modal */}
       {selectedExercise && (
@@ -550,11 +736,19 @@ export default function ExercisesContent() {
                 </ul>
               </div>
 
-              {/* Close Button */}
-              <div className="pt-4 border-t">
+              {/* Prescribe and Close Buttons */}
+              <div className="pt-4 border-t flex gap-2">
+                <Button
+                  variant="default"
+                  className="flex-1"
+                  onClick={handlePrescribe}
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Prescribe to Clients
+                </Button>
                 <Button
                   variant="outline"
-                  className="w-full"
+                  className="flex-1"
                   onClick={() => setSelectedExercise(null)}
                 >
                   Close
@@ -566,7 +760,7 @@ export default function ExercisesContent() {
       )}
 
       {/* Empty State */}
-      {filteredExercises.length === 0 && (
+      {filteredExercises.length === 0 && !isLoadingExercises && (
         <div className="text-center py-12">
           <p className="text-muted-foreground text-lg">No exercises found matching your criteria.</p>
           <p className="text-muted-foreground text-sm mt-2">
@@ -574,6 +768,108 @@ export default function ExercisesContent() {
           </p>
         </div>
       )}
+
+      {/* Loading State */}
+      {isLoadingExercises && (
+        <div className="text-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+          <p className="text-muted-foreground mt-4">Loading exercises...</p>
+        </div>
+      )}
+
+      {/* Prescribe Dialog */}
+      <Dialog open={isPrescribeDialogOpen} onOpenChange={setIsPrescribeDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Prescribe Exercise</DialogTitle>
+            <DialogDescription>
+              Select clients to prescribe "{selectedExercise?.name}" to and set weekly frequency.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Weekly Frequency */}
+            <div className="space-y-2">
+              <Label htmlFor="frequency">Weekly Frequency</Label>
+              <Select
+                value={weeklyFrequency.toString()}
+                onValueChange={(value) => setWeeklyFrequency(parseInt(value))}
+              >
+                <SelectTrigger id="frequency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                    <SelectItem key={num} value={num.toString()}>
+                      {num} time{num !== 1 ? "s" : ""} per week
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Client Selection */}
+            <div className="space-y-2">
+              <Label>Select Clients</Label>
+              <div className="border rounded-lg p-4 max-h-64 overflow-y-auto space-y-2">
+                {clients.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No clients found. Add clients first.
+                  </p>
+                ) : (
+                  clients.map((client) => (
+                    <div
+                      key={client.subject_id}
+                      className="flex items-center space-x-2 p-2 hover:bg-accent rounded"
+                    >
+                      <Checkbox
+                        id={`client-${client.subject_id}`}
+                        checked={selectedClients.includes(client.subject_id)}
+                        onCheckedChange={() => toggleClient(client.subject_id)}
+                      />
+                      <label
+                        htmlFor={`client-${client.subject_id}`}
+                        className="flex-1 cursor-pointer text-sm"
+                      >
+                        {client.name}
+                      </label>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-4">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setIsPrescribeDialogOpen(false)}
+                disabled={isPrescribing}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handlePrescribeSubmit}
+                disabled={isPrescribing || selectedClients.length === 0}
+              >
+                {isPrescribing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Prescribing...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Prescribe to {selectedClients.length} Client{selectedClients.length !== 1 ? "s" : ""}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

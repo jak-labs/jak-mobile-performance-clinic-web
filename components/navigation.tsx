@@ -26,6 +26,7 @@ const coachNavItems = [
 
 const memberNavItems = [
   { name: "Schedule", href: "/" },
+  { name: "Prescribed Exercises", href: "/prescribed-exercises" },
   { name: "Member Profile", href: "/member-profile" },
 ]
 

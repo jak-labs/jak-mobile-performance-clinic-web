@@ -32,12 +32,13 @@ export const config = {
      * Match all request paths except for the ones starting with:
      * - api/auth (NextAuth routes)
      * - api/auth/signup (signup route)
+     * - api/exercise-catalog/seed (public seed endpoint)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - sign-in, sign-up, coach-signup, member-signup, forgot-password (auth pages)
      * - public files (images, etc.)
      */
-    "/((?!api/auth|_next/static|_next/image|favicon.ico|sign-in|sign-up|coach-signup|member-signup|forgot-password|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api/auth|api/exercise-catalog/seed|_next/static|_next/image|favicon.ico|sign-in|sign-up|coach-signup|member-signup|forgot-password|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

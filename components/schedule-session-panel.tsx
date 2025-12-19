@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
@@ -280,29 +279,32 @@ export default function ScheduleSessionPanel({ isOpen, onClose, onAddSession }: 
 
               <div className="space-y-2">
                 <Label>Session Type *</Label>
-                <RadioGroup
-                  value={formData.sessionType}
-                  onValueChange={(value) => handleInputChange("sessionType", value)}
-                >
-                  <div className="flex items-center space-x-3 border border-border dark:border-gray-400/50 rounded-lg p-3">
-                    <RadioGroupItem value="virtual-1:1" id="virtual-one-on-one" />
-                    <Label htmlFor="virtual-one-on-one" className="flex-1 cursor-pointer">
-                      Virtual 1:1 Session
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-3 border border-border dark:border-gray-400/50 rounded-lg p-3">
-                    <RadioGroupItem value="virtual-group" id="virtual-group" />
-                    <Label htmlFor="virtual-group" className="flex-1 cursor-pointer">
-                      Virtual Group Session
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-3 border border-border dark:border-gray-400/50 rounded-lg p-3">
-                    <RadioGroupItem value="mocap-1:1" id="mocap-one-on-one" />
-                    <Label htmlFor="mocap-one-on-one" className="flex-1 cursor-pointer">
-                      In-Person 1:1 Motion Capture Session
-                    </Label>
-                  </div>
-                </RadioGroup>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    variant={formData.sessionType === "virtual-1:1" ? "default" : "outline"}
+                    onClick={() => handleInputChange("sessionType", "virtual-1:1")}
+                    className="w-full justify-start"
+                  >
+                    Virtual 1:1 Session
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formData.sessionType === "virtual-group" ? "default" : "outline"}
+                    onClick={() => handleInputChange("sessionType", "virtual-group")}
+                    className="w-full justify-start"
+                  >
+                    Virtual Group Session
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formData.sessionType === "mocap-1:1" ? "default" : "outline"}
+                    onClick={() => handleInputChange("sessionType", "mocap-1:1")}
+                    className="w-full justify-start"
+                  >
+                    In-Person 1:1 Motion Capture Session
+                  </Button>
+                </div>
               </div>
 
               <div className="flex flex-col xl:flex-row gap-4">

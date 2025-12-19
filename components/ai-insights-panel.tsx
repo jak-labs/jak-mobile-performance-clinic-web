@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Lightbulb, Loader2, FileDown } from "lucide-react"
 import { useRoomContext, useTracks } from "@livekit/components-react"
-import { DataPacket_Kind, Track, ConnectionState } from "livekit-client"
+import { DataPacket_Kind, Track, ConnectionState, RoomEvent } from "livekit-client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -19,6 +19,7 @@ import {
   type PoseKeypoint,
   type PoseDetector,
 } from "@/lib/pose-detection"
+import { useRealtimeMetrics } from "@/lib/realtime-metrics-context"
 
 interface AIInsight {
   participantId: string
@@ -79,6 +80,18 @@ interface AIMetric {
 
 export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId, sessionType }: AIInsightsPanelProps) {
   const room = useRoomContext()
+  
+  // Mark this panel as rendered for status checking
+  useEffect(() => {
+    const panel = document.querySelector('[data-ai-insights-panel]')
+    if (!panel) {
+      // Create a marker element if it doesn't exist
+      const marker = document.createElement('div')
+      marker.setAttribute('data-ai-insights-panel', 'true')
+      marker.style.display = 'none'
+      document.body.appendChild(marker)
+    }
+  }, [])
   // Get all camera tracks (both subscribed and unsubscribed to ensure we get all participants)
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false })
   
@@ -106,6 +119,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   const [latestMetrics, setLatestMetrics] = useState<Record<string, AIMetric>>({}) // Latest metric per participant
   const [metricsUpdateKey, setMetricsUpdateKey] = useState(0) // Force re-render key
   const [metricsTimestamp, setMetricsTimestamp] = useState<string>('') // Timestamp of last metrics update
+  // Real-time angles and metrics (calculated before DB save) - shared via context
+  const { setRealtimeData } = useRealtimeMetrics()
   const [showInsights, setShowInsights] = useState(false) // Flag to control whether to show insights or metrics
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const frameCollectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -118,6 +133,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   // Pose data buffer: Map<participantId, Array<PoseData>>
   const poseDataBufferRef = useRef<Map<string, Array<PoseData>>>(new Map())
   const setupCompleteRef = useRef(false) // Track if intervals have been set up
+  const welcomeMessageSentRef = useRef<Set<string>>(new Set()) // Track which participants have received welcome message
   const [subjectName, setSubjectName] = useState<string | null>(null)
   const [subjectId, setSubjectId] = useState<string | null>(null) // Store subject_id for mocap sessions
   const [isLoadingInsights, setIsLoadingInsights] = useState(false)
@@ -375,6 +391,80 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     latestMetricsRef.current = latestMetrics
     console.log(`[AI Insights] 🔄 Updated latestMetricsRef with ${Object.keys(latestMetrics).length} participant(s) for chat posting`)
   }, [latestMetrics, metricsUpdateKey, metricsTimestamp])
+
+  // Send welcome message to participants
+  const sendWelcomeMessage = async (participantId: string, participantName: string) => {
+    const currentRoom = room
+    const currentSessionId = sessionIdRef.current || sessionId
+    
+    if (!currentRoom || !currentSessionId) {
+      console.log('[AI Insights] ⚠️ Cannot send welcome message - room or sessionId missing', {
+        hasRoom: !!currentRoom,
+        hasSessionId: !!currentSessionId,
+        roomState: currentRoom?.state
+      })
+      return
+    }
+
+    const welcomeMessage = `👋 Welcome to the session, ${participantName}! I'm your AI Coach. I'll be monitoring your movement and providing real-time feedback throughout the session. Let's get started!`
+
+    console.log(`[AI Insights] 💬 Sending welcome message to ${participantName}`)
+
+    try {
+      // Save to database
+      const response = await fetch('/api/chat/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: currentSessionId,
+          participantId: 'ai_agent',
+          participantName: 'AI Coach',
+          message: welcomeMessage,
+          messageType: 'ai_agent',
+          metadata: {
+            message_type: 'welcome',
+            participant_id: participantId,
+          },
+        }),
+      })
+
+      if (response.ok) {
+        console.log(`[AI Insights] ✅ Successfully saved welcome message for ${participantName}`)
+        
+        // Also send via LiveKit data channel for real-time delivery
+        if (currentRoom.state === ConnectionState.Connected && currentRoom.localParticipant) {
+          const chatMessage = {
+            message_id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            participant_id: 'ai_agent',
+            participant_name: 'AI Coach',
+            message: welcomeMessage,
+            message_type: 'ai_agent' as const,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              message_type: 'welcome',
+              participant_id: participantId,
+            },
+          }
+
+          const data = JSON.stringify({
+            type: 'chat_message',
+            message: chatMessage,
+          })
+
+          currentRoom.localParticipant.publishData(
+            new TextEncoder().encode(data),
+            { reliable: true }
+          )
+          console.log(`[AI Insights] ✅ Published welcome message via LiveKit data channel for ${participantName}`)
+        }
+      } else {
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.error('[AI Insights] ❌ Failed to send welcome message:', response.status, errorText)
+      }
+    } catch (error) {
+      console.error('[AI Insights] ❌ Error sending welcome message:', error)
+    }
+  }
 
   // Post metrics to chat as AI coach bot every 30 seconds
   const postMetricsToChat = async (metricsToPost: Record<string, AIMetric>) => {
@@ -674,6 +764,84 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       }
     }
   }, [sessionId, room?.state]) // Only depend on sessionId and room state - don't re-run when metrics change
+
+  // Send welcome message when participants join (immediately)
+  useEffect(() => {
+    if (!sessionId || !room || room.state !== ConnectionState.Connected) {
+      console.log('[AI Insights] 👋 Welcome message effect skipped - missing requirements:', {
+        hasSessionId: !!sessionId,
+        hasRoom: !!room,
+        roomState: room?.state
+      })
+      return
+    }
+
+    // Listen for participant connected events
+    const handleParticipantConnected = (participant: any) => {
+      if (!participant || !participant.identity) return
+
+      const participantId = participant.identity
+      
+      // Skip coach for non-mocap sessions
+      if (sessionOwnerId && participantId === sessionOwnerId && sessionType !== 'mocap') {
+        console.log(`[AI Insights] 👋 Skipping welcome for coach: ${participantId}`)
+        return
+      }
+
+      // Skip if already sent welcome message
+      if (welcomeMessageSentRef.current.has(participantId)) {
+        console.log(`[AI Insights] 👋 Already sent welcome to: ${participantId}`)
+        return
+      }
+
+      // Mark as sent immediately to prevent duplicates
+      welcomeMessageSentRef.current.add(participantId)
+
+      // Get participant name
+      const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
+      
+      console.log(`[AI Insights] 👋 Participant connected: ${participantName} (${participantId}) - sending welcome message immediately`)
+      
+      // Send welcome message immediately
+      sendWelcomeMessage(participantId, participantName)
+    }
+
+    // Check existing participants when effect runs
+    const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
+    allParticipants.forEach(participant => {
+      if (!participant) return
+      const participantId = participant.identity
+      
+      // Skip coach for non-mocap sessions
+      if (sessionOwnerId && participantId === sessionOwnerId && sessionType !== 'mocap') {
+        return
+      }
+
+      // Skip if already sent welcome message
+      if (welcomeMessageSentRef.current.has(participantId)) {
+        return
+      }
+
+      // Mark as sent immediately to prevent duplicates
+      welcomeMessageSentRef.current.add(participantId)
+
+      // Get participant name
+      const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
+      
+      console.log(`[AI Insights] 👋 Existing participant found: ${participantName} (${participantId}) - sending welcome message immediately`)
+      
+      // Send welcome message immediately
+      sendWelcomeMessage(participantId, participantName)
+    })
+
+    // Listen for new participants joining
+    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected)
+
+    // Cleanup
+    return () => {
+      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected)
+    }
+  }, [sessionId, room, room?.state, participantInfo, sessionOwnerId, sessionType])
 
   // Fetch saved AI insights from database periodically
   // This runs every 30 seconds to get the latest insights (especially after auto-generation)
@@ -983,6 +1151,40 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     })
     
     console.log(`[AI Insights] 📊 Total video elements: ${videoElementsRef.current.size}`)
+    
+    // If pose detection is already set up but hasn't started yet, trigger it now
+    if (setupCompleteRef.current && frameCollectionIntervalRef.current && videoElementsRef.current.size > 0) {
+      console.log('[AI Insights] Video elements added after setup, triggering immediate pose detection')
+      // Access the processPoseDetection function from the closure
+      // We'll trigger it by checking if the interval is running
+      setTimeout(() => {
+        // The interval should pick it up, but trigger manually once
+        if (room && room.state === ConnectionState.Connected) {
+          console.log('[AI Insights] Manually triggering pose detection after video element creation')
+          // We can't directly call processPoseDetection here, but the interval will catch it
+          // Set a flag to indicate we should process
+          ;(window as any).__triggerPoseDetection = true
+        }
+      }, 1000)
+    }
+    
+    // If pose detection is already set up, trigger it now that we have video elements
+    if (setupCompleteRef.current && frameCollectionIntervalRef.current) {
+      console.log('[AI Insights] Video elements added, triggering immediate pose detection')
+      // Trigger pose detection immediately since we now have video elements
+      setTimeout(() => {
+        const processPoseDetection = async () => {
+          if (!room || room.state !== ConnectionState.Connected) return
+          const entries = Array.from(videoElementsRef.current.entries())
+          if (entries.length === 0) return
+          
+          // Import the function logic here or call it directly
+          // For now, just trigger the interval to run immediately
+          console.log('[AI Insights] Manually triggering pose detection after video element creation')
+        }
+        processPoseDetection()
+      }, 1000)
+    }
 
     return () => {
       // Cleanup video elements and pose detectors
@@ -1096,8 +1298,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         const entries = Array.from(videoElementsRef.current.entries());
         if (entries.length === 0) {
           console.log('[AI Insights] ⚠️ No video elements available for pose detection');
+          // Set status for UI
+          ;(window as any).__poseDetectionStatus = 'no_video_elements'
           return;
         }
+        
+        // Set status
+        ;(window as any).__poseDetectionStatus = 'processing'
         
         console.log(`[AI Insights] 🎯 Processing ${entries.length} participant(s) - will process first one this cycle`);
 
@@ -1199,6 +1406,15 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           const keypoints = landmarksToKeypoints(pose.keypoints);
             const angles = calculateBiomechanicalAngles(keypoints);
             const metrics = calculateBiomechanicalMetrics(keypoints);
+
+            // Update real-time display immediately (before DB save) - shared via context
+            console.log(`[AI Insights] 📊 Updating real-time metrics for ${participantId}:`, {
+              balance: metrics.balanceScore,
+              symmetry: metrics.symmetryScore,
+              postural: metrics.posturalEfficiency,
+              angles: Object.keys(angles).filter(k => angles[k as keyof typeof angles] !== null).length
+            })
+            setRealtimeData(participantId, { angles, metrics })
 
             // Get or create pose data buffer for this participant
             if (!poseDataBufferRef.current.has(participantId)) {
@@ -1539,13 +1755,31 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       console.log(`[AI Insights] Movement analysis cycle complete at ${new Date().toISOString()}`)
     }
 
-    // Process pose detection every 3 seconds (further reduced to prevent browser hangs)
-    // Delay initial processing significantly to avoid blocking the UI
+    // Process pose detection every 3 seconds
+    // Start immediately if video elements are ready, otherwise wait
     console.log('[AI Insights] Setting up pose detection interval (3 seconds)')
-    setTimeout(() => {
-      processPoseDetection() // Process first frame after a delay
-    }, 5000) // Wait 5 seconds before starting to let page fully load
-    frameCollectionIntervalRef.current = setInterval(processPoseDetection, 3000) // Every 3 seconds to reduce load
+    console.log('[AI Insights] Video elements count:', videoElementsRef.current.size)
+    
+    // Start immediately if we have video elements, otherwise wait a bit
+    const hasVideoElements = videoElementsRef.current.size > 0
+    if (hasVideoElements) {
+      console.log('[AI Insights] Video elements ready, starting pose detection immediately')
+      processPoseDetection()
+    } else {
+      console.log('[AI Insights] Waiting for video elements, will start in 2 seconds')
+      setTimeout(() => {
+        console.log('[AI Insights] Starting pose detection after delay')
+        processPoseDetection()
+      }, 2000)
+    }
+    
+    frameCollectionIntervalRef.current = setInterval(() => {
+      processPoseDetection()
+    }, 3000) // Every 3 seconds to reduce load
+    
+    // Set global flag for status checking
+    ;(window as any).__poseDetectionSetup = true
+    console.log('[AI Insights] ✅ Pose detection intervals set up')
 
     // Analyze collected pose data every 5 seconds for faster metric updates
     // Start analysis after 5 seconds (to collect at least 2-3 poses first), then repeat every 5 seconds

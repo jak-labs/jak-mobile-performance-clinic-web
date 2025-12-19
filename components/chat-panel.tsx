@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Send, Bot } from "lucide-react"
 import { Card } from "@/components/ui/card"
+import { ConnectionState, RoomEvent } from "livekit-client"
 
 interface ChatMessage {
   message_id: string
@@ -39,11 +40,157 @@ export function ChatPanel({ sessionId, sessionOwnerId, participantInfo, localPar
   const [isSending, setIsSending] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const welcomeMessageSentRef = useRef<Set<string>>(new Set()) // Track which participants have received welcome message
 
   // Get local participant name
   const localParticipantName = localParticipantId 
     ? (participantInfo[localParticipantId]?.fullName || "You")
     : "You"
+
+  // Send welcome message when participants join
+  const sendWelcomeMessage = async (participantId: string, participantName: string) => {
+    if (!sessionId || !room) {
+      console.log('[Chat] ⚠️ Cannot send welcome message - sessionId or room missing')
+      return
+    }
+
+    const welcomeMessage = `👋 Welcome to the session, ${participantName}! I'm your AI Coach. I'll be monitoring your movement and providing real-time feedback throughout the session. Let's get started!`
+
+    console.log(`[Chat] 💬 Sending welcome message to ${participantName}`)
+
+    try {
+      // Save to database
+      const response = await fetch('/api/chat/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          participantId: 'ai_agent',
+          participantName: 'AI Coach',
+          message: welcomeMessage,
+          messageType: 'ai_agent',
+          metadata: {
+            message_type: 'welcome',
+            participant_id: participantId,
+          },
+        }),
+      })
+
+      if (response.ok) {
+        console.log(`[Chat] ✅ Successfully saved welcome message for ${participantName}`)
+        
+        // Also send via LiveKit data channel for real-time delivery
+        if (room.state === ConnectionState.Connected && room.localParticipant) {
+          const chatMessage = {
+            message_id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            participant_id: 'ai_agent',
+            participant_name: 'AI Coach',
+            message: welcomeMessage,
+            message_type: 'ai_agent' as const,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              message_type: 'welcome',
+              participant_id: participantId,
+            },
+          }
+
+          const data = JSON.stringify({
+            type: 'chat_message',
+            message: chatMessage,
+          })
+
+          room.localParticipant.publishData(
+            new TextEncoder().encode(data),
+            { reliable: true }
+          )
+          console.log(`[Chat] ✅ Published welcome message via LiveKit data channel for ${participantName}`)
+        }
+      } else {
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.error('[Chat] ❌ Failed to send welcome message:', response.status, errorText)
+      }
+    } catch (error) {
+      console.error('[Chat] ❌ Error sending welcome message:', error)
+    }
+  }
+
+  // Send welcome message when participants join (immediately)
+  useEffect(() => {
+    if (!sessionId || !room || room.state !== ConnectionState.Connected) {
+      console.log('[Chat] 👋 Welcome message effect skipped - missing requirements:', {
+        hasSessionId: !!sessionId,
+        hasRoom: !!room,
+        roomState: room?.state
+      })
+      return
+    }
+
+    // Listen for participant connected events
+    const handleParticipantConnected = (participant: any) => {
+      if (!participant || !participant.identity) return
+
+      const participantId = participant.identity
+      
+      // Skip coach for non-mocap sessions (if sessionOwnerId is provided)
+      if (sessionOwnerId && participantId === sessionOwnerId) {
+        console.log(`[Chat] 👋 Skipping welcome for coach: ${participantId}`)
+        return
+      }
+
+      // Skip if already sent welcome message
+      if (welcomeMessageSentRef.current.has(participantId)) {
+        console.log(`[Chat] 👋 Already sent welcome to: ${participantId}`)
+        return
+      }
+
+      // Mark as sent immediately to prevent duplicates
+      welcomeMessageSentRef.current.add(participantId)
+
+      // Get participant name
+      const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
+      
+      console.log(`[Chat] 👋 Participant connected: ${participantName} (${participantId}) - sending welcome message immediately`)
+      
+      // Send welcome message immediately
+      sendWelcomeMessage(participantId, participantName)
+    }
+
+    // Check existing participants when effect runs
+    const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
+    allParticipants.forEach(participant => {
+      if (!participant) return
+      const participantId = participant.identity
+      
+      // Skip coach for non-mocap sessions
+      if (sessionOwnerId && participantId === sessionOwnerId) {
+        return
+      }
+
+      // Skip if already sent welcome message
+      if (welcomeMessageSentRef.current.has(participantId)) {
+        return
+      }
+
+      // Mark as sent immediately to prevent duplicates
+      welcomeMessageSentRef.current.add(participantId)
+
+      // Get participant name
+      const participantName = participantInfo[participantId]?.fullName || participant.name || participantId
+      
+      console.log(`[Chat] 👋 Existing participant found: ${participantName} (${participantId}) - sending welcome message immediately`)
+      
+      // Send welcome message immediately
+      sendWelcomeMessage(participantId, participantName)
+    })
+
+    // Listen for new participants joining
+    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected)
+
+    // Cleanup
+    return () => {
+      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected)
+    }
+  }, [sessionId, room, room?.state, participantInfo, sessionOwnerId])
 
   // Fetch messages on mount and when sessionId changes
   useEffect(() => {

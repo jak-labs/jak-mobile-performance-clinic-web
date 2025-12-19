@@ -14,7 +14,6 @@ import {
   RoomAudioRenderer,
   useRoomContext,
   TrackToggle,
-  DisconnectButton,
   useTracks,
   ParticipantTile,
   useParticipants,
@@ -32,7 +31,9 @@ import MetricsDashboard from "./metrics-dashboard"
 import { useV2 } from "@/lib/v2-context"
 import { AIInsightsPanel } from "./ai-insights-panel"
 import { ChatPanel } from "./chat-panel"
-// import { CustomVideoControls } from "./custom-video-controls" // Custom controls - commented out for testing LiveKit standard controls
+import { CustomVideoControls } from "./custom-video-controls"
+import { RealtimeMetricsProvider, useRealtimeMetrics } from "@/lib/realtime-metrics-context"
+import { RealtimeMetricsDisplay } from "./realtime-metrics-display"
 
 type LayoutMode = 'default' | 'grid' | 'spotlight' | 'one-on-one'
 
@@ -178,34 +179,36 @@ export default function LiveKitVideoSession({ roomName, sessionTitle, sessionOwn
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || "wss://jak-fcjstami.livekit.cloud"
 
   return (
-    <LiveKitRoom
-      video={true}
-      audio={true}
-      token={token}
-      serverUrl={livekitUrl}
-      connect={true}
-      className="relative w-full h-full bg-[#0a0a0a] overflow-hidden flex"
-    >
-      <RoomContent
-        isPanelOpen={isPanelOpen}
-        setIsPanelOpen={setIsPanelOpen}
-        panelWidth={panelWidth}
-        setPanelWidth={setPanelWidth}
-        isResizing={isResizing}
-        setIsResizing={setIsResizing}
-        handleMouseDown={handleMouseDown}
-        participantNotes={participantNotes}
-        setParticipantNotes={setParticipantNotes}
-        handleAddNote={handleAddNote}
-        sessionDuration={formatDuration(sessionDuration)}
-        v2Enabled={v2Enabled}
-        sessionOwnerId={sessionOwnerId}
-        sessionType={sessionType}
-        sessionId={sessionId}
-        sessionTitle={sessionTitle}
-      />
-      <RoomAudioRenderer />
-    </LiveKitRoom>
+    <RealtimeMetricsProvider>
+      <LiveKitRoom
+        video={true}
+        audio={true}
+        token={token}
+        serverUrl={livekitUrl}
+        connect={true}
+        className="relative w-full h-full bg-[#0a0a0a] overflow-hidden flex"
+      >
+        <RoomContent
+          isPanelOpen={isPanelOpen}
+          setIsPanelOpen={setIsPanelOpen}
+          panelWidth={panelWidth}
+          setPanelWidth={setPanelWidth}
+          isResizing={isResizing}
+          setIsResizing={setIsResizing}
+          handleMouseDown={handleMouseDown}
+          participantNotes={participantNotes}
+          setParticipantNotes={setParticipantNotes}
+          handleAddNote={handleAddNote}
+          sessionDuration={formatDuration(sessionDuration)}
+          v2Enabled={v2Enabled}
+          sessionOwnerId={sessionOwnerId}
+          sessionType={sessionType}
+          sessionId={sessionId}
+          sessionTitle={sessionTitle}
+        />
+        <RoomAudioRenderer />
+      </LiveKitRoom>
+    </RealtimeMetricsProvider>
   )
 }
 
@@ -245,6 +248,7 @@ function RoomContent({
   sessionTitle?: string | null
 }) {
   const router = useRouter()
+  const { realtimeData } = useRealtimeMetrics()
   // Layout state management
   // Initialize layout to 'spotlight' (FocusLayout) by default for all session types
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('spotlight')
@@ -704,77 +708,108 @@ function RoomContent({
   }, [sessionId, sessionOwnerId])
 
   // Update connection status when participants change (without re-fetching)
+  // Use refs to track previous values and prevent infinite loops
+  const prevIdentitiesRef = useRef<Set<string>>(new Set())
+  const expectedParticipantsRef = useRef<Array<{ id: string; name: string; isConnected: boolean }>>([])
+  
+  useEffect(() => {
+    expectedParticipantsRef.current = expectedParticipants
+  }, [expectedParticipants])
+  
   useEffect(() => {
     console.log('[Client] Connection status useEffect triggered')
     console.log('[Client] expectedParticipantIdsRef.current:', expectedParticipantIdsRef.current)
     console.log('[Client] participants.length:', participants.length)
     console.log('[Client] remoteParticipants.length:', remoteParticipants.length)
     
-    if (expectedParticipantIdsRef.current.length > 0) {
-      // Get all participant identities including local participant
-      const allParticipantIdentities = new Set<string>()
+    if (expectedParticipantIdsRef.current.length === 0 || expectedParticipantsRef.current.length === 0) {
+      console.log('[Client] Skipping connection status update - no expected participants yet')
+      return
+    }
+    
+    // Get all participant identities including local participant
+    const allParticipantIdentities = new Set<string>()
+    
+    if (localParticipant?.identity) {
+      allParticipantIdentities.add(localParticipant.identity)
+      console.log('[Client] Added local participant:', localParticipant.identity)
+    }
+    
+    remoteParticipants.forEach(p => {
+      if (p.identity) {
+        allParticipantIdentities.add(p.identity)
+        console.log('[Client] Added remote participant:', p.identity)
+      }
+    })
+    
+    // Also check the participants array directly (this is the most reliable source)
+    participants.forEach(p => {
+      if (p.identity) {
+        allParticipantIdentities.add(p.identity)
+        console.log('[Client] Added participant from participants array:', p.identity)
+      }
+    })
+    
+    const identitiesArray = Array.from(allParticipantIdentities)
+    
+    // Check if identities have actually changed
+    const identitiesString = Array.from(identitiesArray).sort().join(',')
+    const prevIdentitiesString = Array.from(prevIdentitiesRef.current).sort().join(',')
+    
+    if (identitiesString === prevIdentitiesString) {
+      console.log('[Client] Identities unchanged, skipping update')
+      return
+    }
+    
+    prevIdentitiesRef.current = allParticipantIdentities
+    
+    console.log('[Client] Updating connection status.')
+    console.log('[Client] Local participant identity:', localParticipant?.identity)
+    console.log('[Client] Remote participant identities:', remoteParticipants.map(p => p.identity))
+    console.log('[Client] All participants identities:', participants.map(p => p.identity))
+    console.log('[Client] All connected participant identities (combined):', identitiesArray)
+    console.log('[Client] Expected participant IDs:', expectedParticipantIdsRef.current)
+    
+    setExpectedParticipants(prev => {
+      // Check if any connection status actually changed
+      const hasChanges = prev.some(exp => {
+        const isConnected = identitiesArray.some(id => id === exp.id || id.includes(exp.id) || exp.id.includes(id))
+        return exp.isConnected !== isConnected
+      })
       
-      if (localParticipant?.identity) {
-        allParticipantIdentities.add(localParticipant.identity)
-        console.log('[Client] Added local participant:', localParticipant.identity)
+      if (!hasChanges) {
+        console.log('[Client] No connection status changes, skipping update')
+        return prev
       }
       
-      remoteParticipants.forEach(p => {
-        if (p.identity) {
-          allParticipantIdentities.add(p.identity)
-          console.log('[Client] Added remote participant:', p.identity)
+      console.log('[Client] Current expected participants before update:', prev)
+      const updated = prev.map(exp => {
+        // Check if this expected participant ID matches any connected participant identity
+        const isConnected = identitiesArray.some(id => id === exp.id || id.includes(exp.id) || exp.id.includes(id))
+        console.log(`[Client] Checking ${exp.id} (${exp.name}): ${isConnected ? '✅ Connected' : '❌ Not Connected'}`)
+        if (isConnected) {
+          console.log(`[Client] ✅ Match found! ${exp.name} is connected`)
+        } else {
+          console.log(`[Client] ❌ No match. Looking for "${exp.id}" in:`, identitiesArray)
+          console.log(`[Client] Comparison: "${exp.id}" === any of:`, identitiesArray.map(id => `"${id}"`))
+          // Try to find a partial match (in case IDs are slightly different)
+          const partialMatch = identitiesArray.find(id => 
+            id.toLowerCase() === exp.id.toLowerCase() ||
+            id.endsWith(exp.id) ||
+            exp.id.endsWith(id)
+          )
+          if (partialMatch) {
+            console.log(`[Client] ⚠️ Found partial match: "${exp.id}" might match "${partialMatch}"`)
+          }
+        }
+        return {
+          ...exp,
+          isConnected
         }
       })
-      
-      // Also check the participants array directly (this is the most reliable source)
-      participants.forEach(p => {
-        if (p.identity) {
-          allParticipantIdentities.add(p.identity)
-          console.log('[Client] Added participant from participants array:', p.identity)
-        }
-      })
-      
-      const identitiesArray = Array.from(allParticipantIdentities)
-      
-      console.log('[Client] Updating connection status.')
-      console.log('[Client] Local participant identity:', localParticipant?.identity)
-      console.log('[Client] Remote participant identities:', remoteParticipants.map(p => p.identity))
-      console.log('[Client] All participants identities:', participants.map(p => p.identity))
-      console.log('[Client] All connected participant identities (combined):', identitiesArray)
-      console.log('[Client] Expected participant IDs:', expectedParticipantIdsRef.current)
-      
-      setExpectedParticipants(prev => {
-        console.log('[Client] Current expected participants before update:', prev)
-        const updated = prev.map(exp => {
-          // Check if this expected participant ID matches any connected participant identity
-          const isConnected = identitiesArray.some(id => id === exp.id || id.includes(exp.id) || exp.id.includes(id))
-          console.log(`[Client] Checking ${exp.id} (${exp.name}): ${isConnected ? '✅ Connected' : '❌ Not Connected'}`)
-          if (isConnected) {
-            console.log(`[Client] ✅ Match found! ${exp.name} is connected`)
-          } else {
-            console.log(`[Client] ❌ No match. Looking for "${exp.id}" in:`, identitiesArray)
-            console.log(`[Client] Comparison: "${exp.id}" === any of:`, identitiesArray.map(id => `"${id}"`))
-            // Try to find a partial match (in case IDs are slightly different)
-            const partialMatch = identitiesArray.find(id => 
-              id.toLowerCase() === exp.id.toLowerCase() ||
-              id.endsWith(exp.id) ||
-              exp.id.endsWith(id)
-            )
-            if (partialMatch) {
-              console.log(`[Client] ⚠️ Found partial match: "${exp.id}" might match "${partialMatch}"`)
-            }
-          }
-          return {
-            ...exp,
-            isConnected
-          }
-        })
-        console.log('[Client] Updated expected participants:', updated)
-        return updated
-      })
-    } else {
-      console.log('[Client] Skipping connection status update - no expected participants yet')
-    }
+      console.log('[Client] Updated expected participants:', updated)
+      return updated
+    })
   }, [participants, localParticipant?.identity, remoteParticipants, room])
 
   // Listen for participant join/leave events to update connection status in real-time
@@ -974,9 +1009,19 @@ function RoomContent({
               </div>
             </div>
           )}
-          <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-xs md:text-sm">
-            <p className="font-medium text-white">{displayName}</p>
+          {/* Name overlay next to mute icon */}
+          <div className="lk-participant-name-overlay">
+            <p>{displayName}</p>
           </div>
+          
+          {/* Real-time metrics display - always show, will show loading state if no data */}
+          <RealtimeMetricsDisplay
+            participantId={participant.identity}
+            participantName={displayName}
+            angles={realtimeData[participant.identity]?.angles || null}
+            metrics={realtimeData[participant.identity]?.metrics || null}
+            isCoach={localParticipant?.identity === sessionOwnerId}
+          />
         </div>
       )
     } else {
@@ -1017,10 +1062,19 @@ function RoomContent({
                 </div>
               </div>
             )}
-          </div>
-          {/* Name overlay at bottom */}
-          <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-2 py-1.5">
-            <p className="font-medium text-white text-xs md:text-sm text-center truncate">{displayName}</p>
+            {/* Name overlay next to mute icon */}
+            <div className="lk-participant-name-overlay">
+              <p>{displayName}</p>
+            </div>
+            
+            {/* Real-time metrics display - always show, will show loading state if no data */}
+            <RealtimeMetricsDisplay
+              participantId={participant.identity}
+              participantName={displayName}
+              angles={realtimeData[participant.identity]?.angles || null}
+              metrics={realtimeData[participant.identity]?.metrics || null}
+              isCoach={localParticipant?.identity === sessionOwnerId}
+            />
           </div>
         </div>
       )
@@ -1187,6 +1241,29 @@ function RoomContent({
                 .lk-focus-layout .lk-participant-name {
                   display: none !important;
                 }
+                /* Position participant name next to mute icon */
+                .lk-participant-tile {
+                  position: relative;
+                }
+                /* Custom name overlay next to mute icon */
+                .lk-participant-name-overlay {
+                  position: absolute;
+                  top: 0.5rem;
+                  left: 2.5rem;
+                  background-color: rgba(0, 0, 0, 0.7);
+                  backdrop-filter: blur(8px);
+                  padding: 0.375rem 0.75rem;
+                  border-radius: 0.375rem;
+                  z-index: 10;
+                  pointer-events: none;
+                }
+                .lk-participant-name-overlay p {
+                  font-size: 0.75rem;
+                  font-weight: 600;
+                  color: white;
+                  margin: 0;
+                  white-space: nowrap;
+                }
               `
             }} />
             <FocusLayoutContainer className="h-full w-full">
@@ -1205,9 +1282,9 @@ function RoomContent({
                       return (
                         <div className="relative h-full w-full">
                           <ParticipantTile trackRef={trackRef} />
-                          {/* Custom name overlay using our formatted name */}
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-2 py-1.5 pointer-events-none z-10">
-                            <p className="font-medium text-white text-xs md:text-sm text-center truncate">{displayName}</p>
+                          {/* Custom name overlay next to mute icon */}
+                          <div className="lk-participant-name-overlay">
+                            <p>{displayName}</p>
                           </div>
                         </div>
                       )
@@ -1219,14 +1296,24 @@ function RoomContent({
               {spotlightTrackRef ? (
                 <div className="relative h-full w-full">
                   <FocusLayout trackRef={spotlightTrackRef} />
-                  {/* Custom name overlay for main participant */}
+                  {/* Custom name overlay for main participant - next to mute icon */}
                   {(() => {
                     const info = participantInfo[spotlightParticipant.identity]
                     const displayName = formatParticipantName(info, spotlightParticipant)
                     return (
-                      <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-sm px-2 py-1 rounded pointer-events-none z-10">
-                        <p className="font-medium text-white text-xs md:text-sm">{displayName}</p>
-                      </div>
+                      <>
+                        <div className="lk-participant-name-overlay">
+                          <p>{displayName}</p>
+                        </div>
+                        {/* Real-time metrics display - always show, will show loading state if no data */}
+                        <RealtimeMetricsDisplay
+                          participantId={spotlightParticipant.identity}
+                          participantName={displayName}
+                          angles={realtimeData[spotlightParticipant.identity]?.angles || null}
+                          metrics={realtimeData[spotlightParticipant.identity]?.metrics || null}
+                          isCoach={localParticipant?.identity === sessionOwnerId}
+                        />
+                      </>
                     )
                   })()}
                 </div>
@@ -1411,21 +1498,32 @@ function RoomContent({
             )}
           </div>
 
-        {/* Custom Controls - Commented out for testing LiveKit standard controls */}
-        {/* <CustomVideoControls sessionDuration={sessionDuration} /> */}
-
         {/* Standard LiveKit ControlBar */}
         <style dangerouslySetInnerHTML={{
           __html: `
             /* Make ControlBar icons visible - light color on dark background */
             .lk-control-bar button {
               color: white !important;
+              background: transparent !important;
             }
             .lk-control-bar button svg {
               color: white !important;
               fill: white !important;
+              stroke: white !important;
             }
             .lk-control-bar button:hover {
+              background-color: rgba(255, 255, 255, 0.1) !important;
+            }
+            /* Style leave button to match other icons (not red) */
+            .lk-control-bar button.lk-button-leave,
+            .lk-control-bar button[data-lk-leave],
+            .lk-control-bar [data-lk-leave] {
+              background-color: transparent !important;
+              color: white !important;
+            }
+            .lk-control-bar button.lk-button-leave:hover,
+            .lk-control-bar button[data-lk-leave]:hover,
+            .lk-control-bar [data-lk-leave]:hover {
               background-color: rgba(255, 255, 255, 0.1) !important;
             }
             .lk-control-bar {
@@ -1438,7 +1536,7 @@ function RoomContent({
           `
         }} />
         <div 
-          className="absolute left-1/2 -translate-x-1/2 z-50 flex items-center gap-2"
+          className="absolute left-1/2 -translate-x-1/2 z-50"
           style={{ 
             bottom: 'calc(3vh + env(safe-area-inset-bottom, 0))'
           }}
@@ -1447,47 +1545,13 @@ function RoomContent({
             controls={{
               microphone: true,
               camera: true,
-              screenShare: true,
-              leave: false, // Disable default leave button - we'll add custom one
+              screenShare: false, // Remove screen share
+              leave: true, // Enable leave button inside ControlBar
               chat: false,
               settings: false,
             }}
             variation="minimal"
           />
-          {/* Custom leave button with explicit redirect */}
-          <DisconnectButton
-            onClick={async (e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              console.log('[Client] Custom leave button clicked - disconnecting and redirecting')
-              try {
-                if (room) {
-                  await room.disconnect()
-                }
-                // Redirect immediately - don't wait for event
-                console.log('[Client] Redirecting to dashboard')
-                router.push('/')
-              } catch (error) {
-                console.error('[Client] Error disconnecting:', error)
-                // Redirect anyway
-                router.push('/')
-              }
-            }}
-            className="lk-button lk-button-primary"
-            style={{
-              backgroundColor: 'rgb(239, 68, 68)',
-              color: 'white',
-              borderRadius: '9999px',
-              padding: '0.75rem',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <PhoneOff className="h-4 w-4 md:h-5 md:w-5" strokeWidth={2} />
-          </DisconnectButton>
         </div>
 
         {/* Session info - Clean, minimal badges */}

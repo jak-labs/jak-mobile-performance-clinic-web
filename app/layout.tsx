@@ -8,6 +8,7 @@ import "./globals.css"
 import { Suspense } from "react"
 import { Providers } from "@/components/providers"
 import Script from "next/script"
+import { Toaster } from "sonner"
 
 export const metadata: Metadata = {
   title: "JAK Labs - Athlete Performance Monitoring",
@@ -35,6 +36,7 @@ export default function RootLayout({
           </Suspense>
           {children}
         </Providers>
+        <Toaster />
         <Analytics />
       </body>
     </html>

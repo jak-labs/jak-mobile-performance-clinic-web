@@ -410,12 +410,25 @@ export default function ClientPage() {
           </div>
 
           {/* Tabs Content */}
-          <Tabs defaultValue="notes" className="space-y-6">
-            <TabsList className="w-full grid grid-cols-3">
+          <Tabs defaultValue="exercises" className="space-y-6">
+            <TabsList className="w-full grid grid-cols-4">
+              <TabsTrigger value="exercises" className="text-xs md:text-sm">Prescribe Exercises</TabsTrigger>
               <TabsTrigger value="notes" className="text-xs md:text-sm">Notes & Goals</TabsTrigger>
               <TabsTrigger value="sessions" className="text-xs md:text-sm">Sessions</TabsTrigger>
               <TabsTrigger value="performance" className="text-xs md:text-sm">Performance</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="exercises" className="space-y-6">
+              <Card className="p-4 md:p-6">
+                <h2 className="text-lg md:text-xl font-bold mb-4">Prescribe Exercises</h2>
+                <p className="text-muted-foreground mb-6">
+                  Select exercises from the catalog to prescribe to {client.name}. These exercises will be assigned and tracked for this client.
+                </p>
+                <Button onClick={() => router.push("/exercises")} className="w-full md:w-auto">
+                  Browse Exercise Catalog
+                </Button>
+              </Card>
+            </TabsContent>
 
             <TabsContent value="notes" className="space-y-6">
               {/* Notes Section */}

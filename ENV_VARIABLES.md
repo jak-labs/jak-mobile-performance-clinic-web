@@ -112,6 +112,9 @@ LIVEKIT_URL=wss://your-livekit-server.com
 LIVEKIT_API_KEY=your_livekit_api_key
 LIVEKIT_API_SECRET=your_livekit_api_secret
 NEXT_PUBLIC_LIVEKIT_URL=wss://your-livekit-server.com
+
+# S3 Bucket for Subject-Only Session Videos
+S3_BUCKET_NAME=jak-mpc-recorded-sessions-subjects-only
 ```
 
 ## Security Notes
