@@ -1964,9 +1964,11 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       poseDataBufferRef.current.clear()
       // Clean up pose detectors (MediaPipe Pose doesn't need explicit cleanup)
       poseDetectorsRef.current.clear()
-      // Reset setup flag so it can be set up again if needed
+      // Don't reset setup flag in cleanup - let it persist
+      // Only reset setupCompleteRef so intervals can be recreated if needed
       setupCompleteRef.current = false
-      ;(window as any).__poseDetectionSetup = false
+      // Keep __poseDetectionSetup = true so UI doesn't show "waiting" message
+      console.log('[AI Insights] Cleanup: Resetting setupCompleteRef but keeping __poseDetectionSetup flag')
     }
   }, [room, room?.state]) // Depend on room and room state - will re-run when room connects
 
@@ -2226,17 +2228,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }
 
+  // IMPORTANT: Don't return early - we need all the useEffect hooks to run for pose detection
+  // The UI will be hidden but all logic must execute
   // Conditionally render UI - pose detection runs for both coach and participants
-  if (!isCoach) {
-    // Hide UI for non-coaches, but pose detection still runs in the background
-    return (
-      <div className="h-full flex items-center justify-center p-8" style={{ display: 'none' }}>
-        <div className="text-center text-muted-foreground">
-          <p className="text-sm">AI insights and metrics are only available to coaches.</p>
-        </div>
-      </div>
-    )
-  }
+  const shouldShowUI = isCoach
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
