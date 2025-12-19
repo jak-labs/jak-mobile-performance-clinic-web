@@ -1064,6 +1064,11 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       return
     }
 
+    console.log(`[AI Insights] 🎥 Video element setup useEffect running`)
+    console.log(`[AI Insights]   Room state: ${room?.state}`)
+    console.log(`[AI Insights]   Tracks count: ${tracks.length}`)
+    console.log(`[AI Insights]   Current video elements: ${videoElementsRef.current.size}`)
+    
     if (room.state !== ConnectionState.Connected) {
       console.log('[AI Insights] ⚠️ Room not connected, skipping video element setup. State:', room.state)
       return
@@ -1071,15 +1076,77 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
     console.log(`[AI Insights] 🎥 Setting up video elements. Found ${tracks.length} camera tracks`)
     
-    if (tracks.length === 0) {
-      console.warn('[AI Insights] ⚠️ No camera tracks found! This might mean:')
-      console.warn('[AI Insights]   1. Participants haven\'t enabled their cameras yet')
-      console.warn('[AI Insights]   2. Tracks aren\'t subscribed yet')
-      console.warn('[AI Insights]   3. Room is still connecting')
+    // Helper function to create video element from a track
+    const createVideoElementFromTrack = (participantId: string, track: Track, participant: any) => {
+      if (videoElementsRef.current.has(participantId)) {
+        console.log(`[AI Insights] ✅ Video element already exists for ${participantId}`)
+        return
+      }
+
+      console.log(`[AI Insights] 🎬 Creating video element for participant: ${participantId}`)
+      console.log(`[AI Insights]   Track details:`, {
+        hasTrack: !!track,
+        hasMediaStreamTrack: !!track.mediaStreamTrack,
+        trackSid: track.sid,
+        trackKind: track.kind,
+        trackSource: track.source
+      })
       
-      // Try to get tracks directly from participants as fallback
+      const videoElement = document.createElement('video')
+      videoElement.autoplay = true
+      videoElement.playsInline = true
+      videoElement.muted = true
+      videoElement.style.display = 'none'
+      document.body.appendChild(videoElement)
+      console.log(`[AI Insights] ✅ Video element created and added to document.body for ${participantId}`)
+      console.log(`[AI Insights]   Element display: ${videoElement.style.display}`)
+      console.log(`[AI Insights]   Element parent: ${videoElement.parentElement?.tagName}`)
+
+      // Set up event handlers
+      videoElement.addEventListener('loadedmetadata', () => {
+        console.log(`[AI Insights] ✅ Video element ready for ${participantId} - dimensions: ${videoElement.videoWidth}x${videoElement.videoHeight}`)
+        videoElement.play().catch((error) => {
+          if (error.name !== 'NotAllowedError' && error.name !== 'AbortError') {
+            console.warn(`[AI Insights] ⚠️ Could not play video for ${participantId}:`, error.name)
+          }
+        })
+      })
+
+      videoElement.addEventListener('error', (e) => {
+        console.error(`[AI Insights] ❌ Video element error for ${participantId}:`, e)
+      })
+
+      // Set srcObject
+      const mediaStreamTrack = track.mediaStreamTrack
+      if (!mediaStreamTrack) {
+        console.error(`[AI Insights] ❌ No mediaStreamTrack available for ${participantId}`)
+        return
+      }
+      
+      const mediaStream = new MediaStream([mediaStreamTrack])
+      videoElement.srcObject = mediaStream
+      videoElementsRef.current.set(participantId, videoElement)
+      
+      videoElement.play().catch((error) => {
+        if (error.name === 'AbortError') {
+          return
+        }
+        if (error.name === 'NotAllowedError') {
+          console.warn(`[AI Insights] ⚠️ Autoplay blocked for ${participantId}, but autoplay attribute should handle it`)
+        } else {
+          console.warn(`[AI Insights] ⚠️ Could not play video for ${participantId}:`, error)
+        }
+      })
+    }
+    
+    if (tracks.length === 0) {
+      console.warn('[AI Insights] ⚠️ No camera tracks from useTracks hook! Trying fallback method...')
+      
+      // FALLBACK: Get tracks directly from participants and create video elements
       const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
-      console.log(`[AI Insights] 🔍 Checking ${allParticipants.length} participants directly for camera tracks...`)
+      console.log(`[AI Insights] 🔍 Fallback: Checking ${allParticipants.length} participants directly for camera tracks...`)
+      
+      let foundTracks = false
       
       allParticipants.forEach(p => {
         const cameraTracks = Array.from(p.trackPublications.values()).filter(t => 
@@ -1094,38 +1161,62 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           }))
         })
         
-        // If track exists but isn't subscribed, subscribe to it
+        // Create video elements directly from track publications
         cameraTracks.forEach(trackPub => {
-          if (!trackPub.isSubscribed && trackPub.track) {
+          if (!trackPub.track) {
+            console.log(`[AI Insights] ⚠️ Track publication ${trackPub.trackSid} has no track object`)
+            return
+          }
+          
+          // Subscribe if not already subscribed
+          if (!trackPub.isSubscribed) {
             console.log(`[AI Insights] 🔄 Subscribing to track ${trackPub.trackSid} for ${p.identity}`)
             trackPub.setSubscribed(true)
+            // Wait a bit for subscription
+            setTimeout(() => {
+              if (trackPub.track && trackPub.track.mediaStreamTrack) {
+                createVideoElementFromTrack(p.identity, trackPub.track, p)
+              }
+            }, 500)
+          } else if (trackPub.track && trackPub.track.mediaStreamTrack) {
+            // Already subscribed, create video element immediately
+            createVideoElementFromTrack(p.identity, trackPub.track, p)
+            foundTracks = true
           }
         })
       })
       
-      // Return early but set up a retry
-      setTimeout(() => {
-        console.log('[AI Insights] 🔄 Retrying video element setup after 2 seconds...')
-        // This will trigger the useEffect again when tracks become available
-      }, 2000)
-      return
-    }
+      if (!foundTracks) {
+        console.warn('[AI Insights] ⚠️ No subscribed camera tracks found in fallback method either')
+        console.warn('[AI Insights]   This might mean:')
+        console.warn('[AI Insights]   1. Participants haven\'t enabled their cameras yet')
+        console.warn('[AI Insights]   2. Tracks aren\'t subscribed yet')
+        console.warn('[AI Insights]   3. Room is still connecting')
+        // Return early but set up a retry
+        setTimeout(() => {
+          console.log('[AI Insights] 🔄 Retrying video element setup after 2 seconds...')
+        }, 2000)
+        return
+      }
+    } else {
+      // Normal path: useTracks returned tracks
+      console.log(`[AI Insights] ✅ useTracks returned ${tracks.length} track(s), proceeding with normal setup`)
     
-    console.log(`[AI Insights] 🎥 Track details:`, tracks.map(t => ({
-      participantId: t.participant?.identity,
-      participantName: t.participant?.name,
-      hasPublication: !!t.publication,
-      hasPublicationTrack: !!t.publication?.track,
-      hasTrack: !!t.track,
-      hasMediaStreamTrack: !!t.track?.mediaStreamTrack || !!t.publication?.track?.mediaStreamTrack,
-      trackKind: t.publication?.track?.kind || t.track?.kind,
-      trackSource: t.publication?.track?.source || t.track?.source,
-      isSubscribed: t.publication?.isSubscribed,
-      trackSid: t.publication?.trackSid || t.track?.sid
-    })))
+      console.log(`[AI Insights] 🎥 Track details:`, tracks.map(t => ({
+        participantId: t.participant?.identity,
+        participantName: t.participant?.name,
+        hasPublication: !!t.publication,
+        hasPublicationTrack: !!t.publication?.track,
+        hasTrack: !!t.track,
+        hasMediaStreamTrack: !!t.track?.mediaStreamTrack || !!t.publication?.track?.mediaStreamTrack,
+        trackKind: t.publication?.track?.kind || t.track?.kind,
+        trackSource: t.publication?.track?.source || t.track?.source,
+        isSubscribed: t.publication?.isSubscribed,
+        trackSid: t.publication?.trackSid || t.track?.sid
+      })))
     
-    // Also log all participants and their tracks in detail
-    console.log(`[AI Insights] 🎥 All remote participants in room:`, Array.from(room.remoteParticipants.values()).map(p => {
+      // Also log all participants and their tracks in detail
+      console.log(`[AI Insights] 🎥 All remote participants in room:`, Array.from(room.remoteParticipants.values()).map(p => {
       const cameraTracks = Array.from(p.trackPublications.values()).filter(t => t.kind === 'video' && t.source === Track.Source.Camera)
       return {
         identity: p.identity,
@@ -1138,34 +1229,34 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
           track: t.track ? 'exists' : 'missing'
         }))
       }
-    }))
-    console.log(`[AI Insights] 🎥 Local participant:`, {
-      identity: room.localParticipant?.identity,
-      name: room.localParticipant?.name,
-      cameraTracks: Array.from(room.localParticipant?.trackPublications.values() || []).filter(t => t.kind === 'video' && t.source === Track.Source.Camera).map(t => ({
-        trackSid: t.trackSid,
-        isSubscribed: t.isSubscribed,
-        isMuted: t.isMuted,
-        track: t.track ? 'exists' : 'missing'
       }))
-    })
+      console.log(`[AI Insights] 🎥 Local participant:`, {
+        identity: room.localParticipant?.identity,
+        name: room.localParticipant?.name,
+        cameraTracks: Array.from(room.localParticipant?.trackPublications.values() || []).filter(t => t.kind === 'video' && t.source === Track.Source.Camera).map(t => ({
+          trackSid: t.trackSid,
+          isSubscribed: t.isSubscribed,
+          isMuted: t.isMuted,
+          track: t.track ? 'exists' : 'missing'
+        }))
+      })
     
-    // Log all track publications to see what's available
-    const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
-    console.log(`[AI Insights] 🎥 All track publications across all participants:`, allParticipants.map(p => ({
-      identity: p?.identity,
-      name: p?.name,
-      allTracks: Array.from(p?.trackPublications.values() || []).map(t => ({
-        kind: t.kind,
-        source: t.source,
-        trackSid: t.trackSid,
-        isSubscribed: t.isSubscribed,
-        hasTrack: !!t.track
-      }))
-    })))
+      // Log all track publications to see what's available
+      const allParticipants = [room.localParticipant, ...Array.from(room.remoteParticipants.values())].filter(Boolean)
+      console.log(`[AI Insights] 🎥 All track publications across all participants:`, allParticipants.map(p => ({
+        identity: p?.identity,
+        name: p?.name,
+        allTracks: Array.from(p?.trackPublications.values() || []).map(t => ({
+          kind: t.kind,
+          source: t.source,
+          trackSid: t.trackSid,
+          isSubscribed: t.isSubscribed,
+          hasTrack: !!t.track
+        }))
+      })))
 
-    // Create video elements for each track
-    tracks.forEach((trackRef) => {
+      // Create video elements for each track
+      tracks.forEach((trackRef) => {
       if (!trackRef.participant) {
         console.log('[AI Insights] ⚠️ Skipping track - missing participant')
         return
@@ -1204,12 +1295,22 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       }
 
       console.log(`[AI Insights] 🎬 Creating video element for participant: ${participantId}`)
+      console.log(`[AI Insights]   Track details:`, {
+        hasTrack: !!track,
+        hasMediaStreamTrack: !!track?.mediaStreamTrack,
+        trackSid: track?.sid,
+        trackKind: track?.kind,
+        trackSource: track?.source
+      })
       const videoElement = document.createElement('video')
       videoElement.autoplay = true
       videoElement.playsInline = true
       videoElement.muted = true // Mute to avoid audio issues
       videoElement.style.display = 'none'
       document.body.appendChild(videoElement)
+      console.log(`[AI Insights] ✅ Video element created and added to document.body for ${participantId}`)
+      console.log(`[AI Insights]   Element display: ${videoElement.style.display}`)
+      console.log(`[AI Insights]   Element parent: ${videoElement.parentElement?.tagName}`)
 
       // Set up event handlers before setting srcObject
       videoElement.addEventListener('loadedmetadata', () => {
@@ -1257,9 +1358,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       videoElementsRef.current.set(participantId, videoElement)
       console.log(`[AI Insights] ✅ Video element created and added for ${participantId}`)
 
-      // Pose detector will be initialized on-demand in processPoseDetection
-      // This avoids race conditions with async initialization
-    })
+        // Pose detector will be initialized on-demand in processPoseDetection
+        // This avoids race conditions with async initialization
+      })
+    }
     
     console.log(`[AI Insights] 📊 Total video elements: ${videoElementsRef.current.size}`)
     

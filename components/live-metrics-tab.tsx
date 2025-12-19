@@ -20,10 +20,20 @@ export function LiveMetricsTab({ participants, participantInfo }: LiveMetricsTab
     const checkStatus = () => {
       const poseDetectionSetup = (window as any).__poseDetectionSetup
       const aiInsightsPanelRendered = (window as any).__aiInsightsPanelRendered
-      const hiddenVideos = Array.from(document.querySelectorAll('video')).filter(v => 
-        v.style.display === 'none' && v.parentElement === document.body
-      )
       const allVideos = Array.from(document.querySelectorAll('video'))
+      const hiddenVideos = allVideos.filter(v => {
+        const isHidden = v.style.display === 'none'
+        const isInBody = v.parentElement === document.body
+        return isHidden && isInBody
+      })
+      
+      // Log details about all videos for debugging
+      if (allVideos.length > 0) {
+        console.log(`[Live Metrics] Found ${allVideos.length} total video(s) on page:`)
+        allVideos.forEach((v, i) => {
+          console.log(`[Live Metrics]   Video ${i}: display="${v.style.display || '(empty)'}", parent="${v.parentElement?.tagName || 'none'}", dimensions=${v.videoWidth}x${v.videoHeight}`)
+        })
+      }
       const hasValidVideo = hiddenVideos.some(v => v.videoWidth > 0 && v.videoHeight > 0)
       const status = (window as any).__poseDetectionStatus
       const realtimeDataKeys = Object.keys(realtimeData)
