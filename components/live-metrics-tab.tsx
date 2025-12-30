@@ -14,6 +14,24 @@ interface LiveMetricsTabProps {
 export function LiveMetricsTab({ participants, participantInfo }: LiveMetricsTabProps) {
   const { realtimeData } = useRealtimeMetrics()
   const [statusMessage, setStatusMessage] = useState<string>("Initializing pose detection...")
+  
+  // Debug: Log realtimeData changes
+  useEffect(() => {
+    const keys = Object.keys(realtimeData)
+    if (keys.length > 0) {
+      console.log(`[Live Metrics Tab] 📊 Realtime data updated:`, {
+        keys,
+        participants: participants.map(p => p.identity),
+        data: keys.map(key => ({
+          participantId: key,
+          hasAngles: !!realtimeData[key]?.angles,
+          hasMetrics: !!realtimeData[key]?.metrics,
+          balance: realtimeData[key]?.metrics?.balanceScore,
+          symmetry: realtimeData[key]?.metrics?.symmetryScore
+        }))
+      })
+    }
+  }, [realtimeData, participants])
 
   // Check status periodically with detailed logging
   useEffect(() => {

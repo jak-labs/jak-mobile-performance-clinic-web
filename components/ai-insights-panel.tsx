@@ -123,7 +123,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
   const [metricsUpdateKey, setMetricsUpdateKey] = useState(0) // Force re-render key
   const [metricsTimestamp, setMetricsTimestamp] = useState<string>('') // Timestamp of last metrics update
   // Real-time angles and metrics (calculated before DB save) - shared via context
-  const { setRealtimeData } = useRealtimeMetrics()
+  const { realtimeData, setRealtimeData } = useRealtimeMetrics()
   const [showInsights, setShowInsights] = useState(false) // Flag to control whether to show insights or metrics
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const frameCollectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -1017,12 +1017,27 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         // Handle real-time metrics updates from other participants
         if (message.type === 'realtime-metrics') {
           const { participantId, angles, metrics } = message
-          console.log(`[AI Insights] 📥 Received real-time metrics for ${participantId} from ${participant?.identity || 'unknown'}`)
+          const senderId = participant?.identity || 'unknown'
+          const isCoach = room?.localParticipant?.identity === sessionOwnerId
+          
+          console.log(`[AI Insights] 📥 Received real-time metrics:`, {
+            participantId,
+            senderId,
+            isCoach,
+            hasAngles: !!angles,
+            hasMetrics: !!metrics,
+            balance: metrics?.balanceScore,
+            symmetry: metrics?.symmetryScore
+          })
           
           // Update the realtime metrics context so coach can see participant metrics
           if (participantId && angles && metrics) {
             setRealtimeData(participantId, { angles, metrics })
-            console.log(`[AI Insights] ✅ Updated realtime metrics context for ${participantId}`)
+            console.log(`[AI Insights] ✅ Updated realtime metrics context for ${participantId} (isCoach: ${isCoach})`)
+            // Note: realtimeData here is from closure, might be stale, but setRealtimeData will update it
+            console.log(`[AI Insights] 📊 Metrics updated - balance: ${metrics.balanceScore}, symmetry: ${metrics.symmetryScore}`)
+          } else {
+            console.warn(`[AI Insights] ⚠️ Invalid metrics data received:`, { participantId, hasAngles: !!angles, hasMetrics: !!metrics })
           }
           return
         }
