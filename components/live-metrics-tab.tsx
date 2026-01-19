@@ -9,144 +9,43 @@ import { useEffect, useState } from "react"
 interface LiveMetricsTabProps {
   participants: Array<{ identity: string; name: string }>
   participantInfo: Record<string, { fullName?: string }>
+  sessionType?: string | null
+  subjectId?: string | null
 }
 
-export function LiveMetricsTab({ participants, participantInfo }: LiveMetricsTabProps) {
+export function LiveMetricsTab({ participants, participantInfo, sessionType, subjectId }: LiveMetricsTabProps) {
   const { realtimeData } = useRealtimeMetrics()
-  const [statusMessage, setStatusMessage] = useState<string>("Initializing pose detection...")
   
   // Debug: Log realtimeData changes
   useEffect(() => {
     const keys = Object.keys(realtimeData)
-    if (keys.length > 0) {
-      console.log(`[Live Metrics Tab] 📊 Realtime data updated:`, {
-        keys,
-        participants: participants.map(p => p.identity),
-        data: keys.map(key => ({
-          participantId: key,
-          hasAngles: !!realtimeData[key]?.angles,
-          hasMetrics: !!realtimeData[key]?.metrics,
-          balance: realtimeData[key]?.metrics?.balanceScore,
-          symmetry: realtimeData[key]?.metrics?.symmetryScore
-        }))
-      })
+    console.log(`[Live Metrics Tab] 📊 Realtime data check:`, {
+      keys,
+      keysCount: keys.length,
+      participants: participants.map(p => p.identity),
+      sessionType,
+      subjectId,
+      isMocap: sessionType === 'mocap',
+      data: keys.map(key => ({
+        participantId: key,
+        hasAngles: !!realtimeData[key]?.angles,
+        hasMetrics: !!realtimeData[key]?.metrics,
+        balance: realtimeData[key]?.metrics?.balanceScore,
+        symmetry: realtimeData[key]?.metrics?.symmetryScore
+      }))
+    })
+    
+    // For mocap sessions, specifically check if subjectId has data
+    if (sessionType === 'mocap' && subjectId) {
+      const hasSubjectData = realtimeData[subjectId]?.angles || realtimeData[subjectId]?.metrics
+      console.log(`[Live Metrics Tab] 🎯 Mocap session check - subjectId "${subjectId}" has data:`, hasSubjectData)
+      if (hasSubjectData) {
+        console.log(`[Live Metrics Tab] ✅ Found metrics for subjectId:`, realtimeData[subjectId])
+      } else {
+        console.log(`[Live Metrics Tab] ⚠️ No metrics found for subjectId "${subjectId}" - checking all keys:`, keys)
+      }
     }
-  }, [realtimeData, participants])
-
-  // Check status periodically with detailed logging
-  useEffect(() => {
-    const checkStatus = () => {
-      const poseDetectionSetup = (window as any).__poseDetectionSetup
-      const aiInsightsPanelRendered = (window as any).__aiInsightsPanelRendered
-      const allVideos = Array.from(document.querySelectorAll('video'))
-      const hiddenVideos = allVideos.filter(v => {
-        const isHidden = v.style.display === 'none'
-        const isInBody = v.parentElement === document.body
-        return isHidden && isInBody
-      })
-      
-      // Log details about all videos for debugging
-      if (allVideos.length > 0) {
-        console.log(`[Live Metrics] Found ${allVideos.length} total video(s) on page:`)
-        allVideos.forEach((v, i) => {
-          console.log(`[Live Metrics]   Video ${i}: display="${v.style.display || '(empty)'}", parent="${v.parentElement?.tagName || 'none'}", dimensions=${v.videoWidth}x${v.videoHeight}`)
-        })
-      }
-      const hasValidVideo = hiddenVideos.some(v => v.videoWidth > 0 && v.videoHeight > 0)
-      const status = (window as any).__poseDetectionStatus
-      const realtimeDataKeys = Object.keys(realtimeData)
-      
-      // Build detailed status message
-      let message = ""
-      let details: string[] = []
-      
-      // Log to terminal (server console) - this will show in npm run dev terminal
-      console.log('\n=== [Live Metrics] Status Check ===')
-      console.log(`[Live Metrics] Timestamp: ${new Date().toISOString()}`)
-      console.log(`[Live Metrics] Participants: ${participants.length}`)
-      console.log(`[Live Metrics] Participants with metrics: ${participants.filter(p => realtimeData[p.identity]?.angles || realtimeData[p.identity]?.metrics).length}`)
-      console.log(`[Live Metrics] Realtime data keys: ${realtimeDataKeys.length} (${realtimeDataKeys.join(', ') || 'none'})`)
-      
-      if (!aiInsightsPanelRendered) {
-        message = "AI Insights Panel not rendered..."
-        details.push("⚠️ AI Insights Panel rendered: false")
-        console.log(`[Live Metrics] ⚠️ AI Insights Panel not rendered - this is the problem!`)
-      } else {
-        details.push("✓ AI Insights Panel rendered: true")
-        console.log(`[Live Metrics] ✓ AI Insights Panel is rendered`)
-      }
-      
-      if (!poseDetectionSetup) {
-        message = "Waiting for pose detection setup..."
-        details.push("⚠️ Setup flag: false")
-        console.log(`[Live Metrics] ⚠️ Pose detection setup flag is FALSE`)
-        console.log(`[Live Metrics]   This means the setup useEffect in AIInsightsPanel hasn't run or failed`)
-      } else {
-        details.push("✓ Setup flag: true")
-        console.log(`[Live Metrics] ✓ Pose detection setup flag is TRUE`)
-        
-        if (hiddenVideos.length === 0) {
-          message = "Waiting for video elements..."
-          details.push(`⚠️ Hidden video elements: 0 (total videos: ${allVideos.length})`)
-          console.log(`[Live Metrics] ⚠️ No hidden video elements found`)
-          console.log(`[Live Metrics]   Total videos on page: ${allVideos.length}`)
-          allVideos.forEach((v, i) => {
-            console.log(`[Live Metrics]   Video ${i}: display=${v.style.display}, parent=${v.parentElement?.tagName}, dimensions=${v.videoWidth}x${v.videoHeight}`)
-          })
-        } else {
-          details.push(`✓ Hidden video elements: ${hiddenVideos.length}`)
-          console.log(`[Live Metrics] ✓ Found ${hiddenVideos.length} hidden video elements`)
-          
-          if (!hasValidVideo) {
-            message = "Waiting for video stream..."
-            details.push("⚠️ Valid video: false")
-            console.log(`[Live Metrics] ⚠️ No valid video streams (all have 0 dimensions)`)
-            hiddenVideos.forEach((v, i) => {
-              console.log(`[Live Metrics]   Video ${i}: ${v.videoWidth}x${v.videoHeight} (readyState: ${v.readyState}, paused: ${v.paused})`)
-            })
-          } else {
-            details.push("✓ Valid video: true")
-            console.log(`[Live Metrics] ✓ Valid video streams found`)
-            
-            if (status === 'no_video_elements') {
-              message = "No video elements available"
-              console.log(`[Live Metrics] ⚠️ Status: no_video_elements`)
-            } else if (status === 'processing') {
-              message = "Detecting pose..."
-              details.push("Status: processing")
-              console.log(`[Live Metrics] ✓ Status: processing (pose detection is running)`)
-            } else {
-              message = "Ready - waiting for pose detection..."
-              details.push(`Status: ${status || 'unknown'}`)
-              console.log(`[Live Metrics] Status: ${status || 'unknown'}`)
-            }
-          }
-        }
-      }
-      
-      // Log realtime data details
-      if (realtimeDataKeys.length > 0) {
-        console.log(`[Live Metrics] ✓ Realtime data available for: ${realtimeDataKeys.join(', ')}`)
-        realtimeDataKeys.forEach(key => {
-          const data = realtimeData[key]
-          console.log(`[Live Metrics]   ${key}: angles=${!!data.angles}, metrics=${!!data.metrics}`)
-          if (data.metrics) {
-            console.log(`[Live Metrics]     Balance: ${data.metrics.balanceScore}, Symmetry: ${data.metrics.symmetryScore}`)
-          }
-        })
-      } else {
-        console.log(`[Live Metrics] ⚠️ No realtime data available yet`)
-      }
-      
-      console.log('=== End Status Check ===\n')
-      
-      setStatusMessage(message)
-    }
-
-    checkStatus()
-    const interval = setInterval(checkStatus, 2000)
-    return () => clearInterval(interval)
-  }, [realtimeData, participants])
+  }, [realtimeData, participants, sessionType, subjectId])
 
   const formatAngle = (angle: number | null) => {
     if (angle === null) return "N/A"
@@ -157,26 +56,53 @@ export function LiveMetricsTab({ participants, participantInfo }: LiveMetricsTab
     return `${Math.round(score)}`
   }
 
-  // Filter out participants that don't have metrics yet
-  const participantsWithMetrics = participants.filter(p => 
-    realtimeData[p.identity]?.angles || realtimeData[p.identity]?.metrics
-  )
+  // For mocap sessions: check for metrics using subjectId instead of participant identity
+  // Coach is in session pointing camera at athlete, so metrics are stored under subjectId
+  const isMocapSession = sessionType === 'mocap'
+  
+  // Debug: Log what we're looking for
+  console.log(`[Live Metrics Tab] 🔍 Looking for metrics:`, {
+    isMocapSession,
+    subjectId,
+    realtimeDataKeys: Object.keys(realtimeData),
+    participants: participants.map(p => p.identity),
+    checkingSubjectId: isMocapSession && subjectId ? realtimeData[subjectId] : null
+  })
+  
+  // Filter participants that have metrics
+  // For mocap: check if subjectId has metrics, otherwise check participant identities
+  const participantsWithMetrics = isMocapSession && subjectId
+    ? (realtimeData[subjectId]?.angles || realtimeData[subjectId]?.metrics)
+      ? (() => {
+          console.log(`[Live Metrics Tab] ✅ Found metrics for subjectId "${subjectId}"`)
+          return [{ identity: subjectId, name: participantInfo[subjectId]?.fullName || 'Athlete' }]
+        })()
+      : (() => {
+          console.log(`[Live Metrics Tab] ⚠️ No metrics found for subjectId "${subjectId}" in realtimeData`)
+          console.log(`[Live Metrics Tab] Available keys:`, Object.keys(realtimeData))
+          return []
+        })()
+    : participants.filter(p => {
+        const hasMetrics = realtimeData[p.identity]?.angles || realtimeData[p.identity]?.metrics
+        if (!hasMetrics) {
+          console.log(`[Live Metrics Tab] ⚠️ No metrics for participant "${p.identity}"`)
+        }
+        return hasMetrics
+      })
+  
+  console.log(`[Live Metrics Tab] 📊 Participants with metrics: ${participantsWithMetrics.length}`, participantsWithMetrics.map(p => p.identity))
 
-  // Show loading state if no metrics available
+  // Show empty state if no metrics available (no waiting box)
   if (participantsWithMetrics.length === 0) {
     return (
       <div className="h-full flex items-center justify-center p-8">
-        <Card className="bg-black/80 backdrop-blur-sm border-white/20 p-6 max-w-md w-full">
-          <div className="flex items-center gap-3 mb-3">
-            <Activity className="h-5 w-5 text-primary animate-pulse" />
-            <span className="text-sm text-white/80 font-medium">{statusMessage}</span>
-          </div>
-          <div className="text-xs text-white/50 space-y-1">
-            <div>Status details logged to terminal (npm run dev console)</div>
-            <div>Participants: {participants.length}</div>
-            <div>Participants with metrics: {participantsWithMetrics.length}</div>
-          </div>
-        </Card>
+        <div className="text-center">
+          <Activity className="h-8 w-8 text-white/40 mx-auto mb-3" />
+          <p className="text-sm text-white/60">No metrics available yet</p>
+          {isMocapSession && (
+            <p className="text-xs text-white/40 mt-2">Point camera at athlete to start analysis</p>
+          )}
+        </div>
       </div>
     )
   }

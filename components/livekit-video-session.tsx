@@ -264,6 +264,7 @@ function RoomContent({
   const [isLoadingExpectedParticipants, setIsLoadingExpectedParticipants] = useState(true)
   const [isEndingSession, setIsEndingSession] = useState(false)
   const [participantMetrics, setParticipantMetrics] = useState<Record<string, { balance: number; symmetry: number; postural: number }>>({})
+  const [sessionSubjectId, setSessionSubjectId] = useState<string | null>(null)
   const room = useRoomContext()
   const localParticipant = room.localParticipant
   const remoteParticipants = Array.from(room.remoteParticipants.values())
@@ -581,6 +582,11 @@ function RoomContent({
           subject_ids: sessionData.subject_ids,
           session_id: sessionData.session_id
         })
+        
+        // Store subject_id for mocap sessions
+        if (sessionData.subject_id) {
+          setSessionSubjectId(sessionData.subject_id)
+        }
         
         const expectedIds: string[] = []
         
@@ -1801,11 +1807,27 @@ function RoomContent({
                 name: participantInfo[p.identity]?.fullName || p.name || p.identity
               }))}
               participantInfo={participantInfo}
+              sessionType={sessionType}
+              subjectId={sessionType === 'mocap' ? sessionSubjectId : null}
             />
           </TabsContent>
 
-          {/* Render AIInsightsPanel for everyone (pose detection needs to run)
-              But only show the Insights tab to coaches */}
+          {/* Always render AIInsightsPanel in background for pose detection (must run for all users)
+              But only show the Insights tab content to coaches */}
+          <div style={{ display: 'none' }}>
+            <AIInsightsPanel
+              participants={participants.map(p => ({
+                identity: p.identity,
+                name: participantInfo[p.identity]?.fullName || p.name || p.identity
+              }))}
+              participantInfo={participantInfo}
+              sessionOwnerId={sessionOwnerId}
+              sessionId={sessionId}
+              sessionType={sessionType}
+            />
+          </div>
+          
+          {/* Show Insights tab content only to coaches */}
           {localParticipant?.identity === sessionOwnerId && (
             <TabsContent
               value="insights"
@@ -1822,22 +1844,6 @@ function RoomContent({
                 sessionType={sessionType}
               />
             </TabsContent>
-          )}
-          
-          {/* Hidden AIInsightsPanel for non-coaches - needed for pose detection to run */}
-          {localParticipant?.identity !== sessionOwnerId && (
-            <div style={{ display: 'none' }}>
-              <AIInsightsPanel
-                participants={participants.map(p => ({
-                  identity: p.identity,
-                  name: participantInfo[p.identity]?.fullName || p.name || p.identity
-                }))}
-                participantInfo={participantInfo}
-                sessionOwnerId={sessionOwnerId}
-                sessionId={sessionId}
-                sessionType={sessionType}
-              />
-            </div>
           )}
         </Tabs>
       </div>

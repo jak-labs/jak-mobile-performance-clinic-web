@@ -79,7 +79,32 @@ interface AIMetric {
 }
 
 export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId, sessionId, sessionType }: AIInsightsPanelProps) {
+  // Log immediately when component function is called (before any hooks)
+  console.log('[AI Insights] 🎬 AIInsightsPanel component function called', {
+    sessionType,
+    sessionId,
+    sessionOwnerId,
+    participantsCount: participants.length,
+    participantIds: participants.map(p => p.identity),
+    timestamp: new Date().toISOString()
+  })
+  
   const room = useRoomContext()
+  
+  // Log when component renders
+  useEffect(() => {
+    console.log('[AI Insights] 🎬 AIInsightsPanel component mounted/updated', {
+      sessionType,
+      sessionId,
+      sessionOwnerId,
+      participantsCount: participants.length,
+      participantIds: participants.map(p => p.identity),
+      hasRoom: !!room,
+      roomState: room?.state
+    })
+    ;(window as any).__aiInsightsPanelRendered = true
+    console.log('[AI Insights] ✅ AIInsightsPanel component rendered')
+  }, [sessionType, sessionId, sessionOwnerId, participants.length, room])
   
   // Mark this panel as rendered for status checking
   // Set pose detection flag optimistically as soon as component mounts
@@ -164,10 +189,20 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         // Get subject_id (for single/mocap) or first subject_id from subject_ids (for group)
         const subjectIdFromSession = session.subject_id || (session.subject_ids && session.subject_ids[0])
 
+        console.log('[AI Insights] 📋 Session data fetched:', {
+          sessionId: session.session_id,
+          sessionType: session.session_type,
+          subjectId: session.subject_id,
+          subjectIds: session.subject_ids,
+          subjectIdFromSession
+        })
+
         if (!subjectIdFromSession) {
-          console.log('[AI Insights] No subject_id found in session')
+          console.warn('[AI Insights] ⚠️ No subject_id found in session - metrics may not be attributed correctly')
           return
         }
+        
+        console.log('[AI Insights] ✅ Setting subjectId for mocap session:', subjectIdFromSession)
         
         // Store subject_id for use in analysis
         setSubjectId(subjectIdFromSession)
@@ -611,20 +646,14 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
   }
 
-  // Auto-generate insights every 30 seconds when metrics are available
-  // Uses latest metrics from the database to generate fresh insights
+  // Auto-generate insights every 30 seconds based on LIVE realtime metrics
+  // Uses realtimeData from context (most up-to-date) instead of waiting for database
   useEffect(() => {
     if (!sessionId) return
 
-    // Only generate insights if we have metrics
-    const hasMetrics = Object.keys(latestMetrics).length > 0 || metrics.length > 0
-    if (!hasMetrics) {
-      console.log('[AI Insights] ⏸️ Skipping auto-insight generation - no metrics available yet')
-      return
-    }
-
-    console.log('[AI Insights] 🤖 Setting up automatic insight generation (every 30 seconds)')
-    console.log('[AI Insights] 📊 Current metrics available:', Object.keys(latestMetrics).length, 'participant(s)')
+    console.log('[AI Insights] 🤖 Setting up automatic insight generation from LIVE metrics (every 30 seconds)')
+    console.log('[AI Insights] 📊 Current realtime metrics available:', Object.keys(realtimeData).length, 'participant(s)')
+    console.log('[AI Insights] 📊 Realtime data keys:', Object.keys(realtimeData))
     
     // Clear any existing interval
     if (insightsGenerationIntervalRef.current) {
@@ -632,24 +661,33 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       insightsGenerationIntervalRef.current = null
     }
 
-    // Generate insights using the latest metrics from database
+    // Generate insights using LIVE realtime metrics
     const generateInsights = async () => {
       if (!sessionId || isGenerating) {
         console.log('[AI Insights] ⏸️ Skipping insight generation - sessionId missing or already generating')
         return
       }
 
-      // Always use latestMetrics (which is updated every 2 seconds from database)
-      const currentMetrics = Object.keys(latestMetrics).length > 0 ? latestMetrics : {}
-      const hasCurrentMetrics = Object.keys(currentMetrics).length > 0 || metrics.length > 0
+      // Check for realtime metrics first (most up-to-date)
+      const hasRealtimeMetrics = Object.keys(realtimeData).length > 0 && 
+        Object.values(realtimeData).some(data => data.metrics || data.angles)
       
-      if (!hasCurrentMetrics) {
-        console.log('[AI Insights] ⏸️ Skipping insight generation - no metrics available')
+      // Fall back to database metrics if no realtime data
+      const hasDatabaseMetrics = Object.keys(latestMetrics).length > 0 || metrics.length > 0
+      
+      if (!hasRealtimeMetrics && !hasDatabaseMetrics) {
+        console.log('[AI Insights] ⏸️ Skipping insight generation - no metrics available (realtime or database)')
         return
       }
 
-      console.log('[AI Insights] 🤖 Auto-generating insights from LATEST metrics...')
-      console.log('[AI Insights] 📊 Using metrics from', Object.keys(currentMetrics).length, 'participant(s)')
+      if (hasRealtimeMetrics) {
+        console.log('[AI Insights] 🤖 Auto-generating insights from LIVE realtime metrics...')
+        console.log('[AI Insights] 📊 Using realtime metrics from', Object.keys(realtimeData).length, 'participant(s)')
+      } else {
+        console.log('[AI Insights] 🤖 Auto-generating insights from database metrics (realtime not available)...')
+        console.log('[AI Insights] 📊 Using database metrics from', Object.keys(latestMetrics).length, 'participant(s)')
+      }
+
       await handleGenerateInsights()
     }
 
@@ -671,7 +709,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         insightsGenerationIntervalRef.current = null
       }
     }
-  }, [sessionId, latestMetrics, metrics.length, isGenerating])
+  }, [sessionId, realtimeData, latestMetrics, metrics.length, isGenerating])
 
   // Post metrics to chat as AI coach bot every 30 seconds
   // Set up the interval once when room is connected, then it will check for metrics on each run
@@ -1177,8 +1215,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       let foundTracks = false
       
       allParticipants.forEach(p => {
-        // Skip coach - only analyze participants
-        if (p.identity === sessionOwnerId) {
+        // For mocap sessions: process coach's video (coach points camera at athlete)
+        // For other sessions: skip coach - only analyze participants
+        if (sessionType !== 'mocap' && p.identity === sessionOwnerId) {
           console.log(`[AI Insights] ⏭️ Skipping coach (${p.identity}) - only analyzing participants`)
           return
         }
@@ -1289,15 +1328,18 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         }))
       })))
 
-      // Create video elements for each track (excluding coach)
+      // Create video elements for each track
+      // For mocap sessions: include coach's track (coach points camera at athlete)
+      // For other sessions: exclude coach
       tracks.forEach((trackRef) => {
       if (!trackRef.participant) {
         console.log('[AI Insights] ⚠️ Skipping track - missing participant')
         return
       }
       
-      // Skip coach - only analyze participants
-      if (trackRef.participant.identity === sessionOwnerId) {
+      // For mocap sessions: process coach's video (coach points camera at athlete)
+      // For other sessions: skip coach - only analyze participants
+      if (sessionType !== 'mocap' && trackRef.participant.identity === sessionOwnerId) {
         console.log(`[AI Insights] ⏭️ Skipping coach track (${trackRef.participant.identity}) - only analyzing participants`)
         return
       }
@@ -1594,10 +1636,14 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         
         console.log(`[AI Insights] 🎯 Processing ${entries.length} participant(s) - will process first one this cycle`);
 
-        // Process only participants (exclude coach)
-        // Filter out coach first, then find first available participant with valid video element
+        // For mocap sessions: process coach's video (coach points camera at athlete)
+        // For other sessions: process only participants (exclude coach)
         const participantEntries = entries.filter(([pid]) => {
-          // Skip coach - only analyze participants
+          // In mocap sessions, coach's video should be processed (camera points at athlete)
+          if (sessionType === 'mocap') {
+            return true // Process all videos including coach in mocap sessions
+          }
+          // For non-mocap sessions: skip coach - only analyze participants
           if (pid === sessionOwnerId) {
             console.log(`[AI Insights] ⏭️ Skipping coach (${pid}) in pose detection`)
             return false
@@ -1606,8 +1652,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         })
         
         if (participantEntries.length === 0) {
-          console.log('[AI Insights] ⚠️ No participant video elements available (only coach found)')
-          ;(window as any).__poseDetectionStatus = 'no_participant_videos'
+          console.log('[AI Insights] ⚠️ No video elements available for pose detection')
+          ;(window as any).__poseDetectionStatus = 'no_video_elements'
           return
         }
         
@@ -1707,14 +1753,31 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
             const angles = calculateBiomechanicalAngles(keypoints);
             const metrics = calculateBiomechanicalMetrics(keypoints);
 
+            // For mocap sessions: use subjectId instead of participantId for storing metrics
+            // Coach is pointing camera at athlete, so metrics should be attributed to subject
+            const isMocapSession = sessionType === 'mocap'
+            const metricKey = (isMocapSession && subjectId) ? subjectId : participantId
+
             // Update real-time display immediately (before DB save) - shared via context
-            console.log(`[AI Insights] 📊 Updating real-time metrics for ${participantId}:`, {
+            console.log(`[AI Insights] 📊 Updating real-time metrics for ${metricKey} (from video ${participantId}):`, {
               balance: metrics.balanceScore,
               symmetry: metrics.symmetryScore,
               postural: metrics.posturalEfficiency,
-              angles: Object.keys(angles).filter(k => angles[k as keyof typeof angles] !== null).length
+              angles: Object.keys(angles).filter(k => angles[k as keyof typeof angles] !== null).length,
+              isMocap: isMocapSession,
+              subjectId: subjectId,
+              sessionType: sessionType
             })
-            setRealtimeData(participantId, { angles, metrics })
+            
+            console.log(`[AI Insights] 🔑 Storing metrics with key: "${metricKey}" (participantId: ${participantId}, subjectId: ${subjectId}, isMocap: ${isMocapSession})`)
+            console.log(`[AI Insights] 📦 Metrics data being stored:`, {
+              balanceScore: metrics.balanceScore,
+              symmetryScore: metrics.symmetryScore,
+              posturalEfficiency: metrics.posturalEfficiency,
+              anglesCount: Object.keys(angles).filter(k => angles[k as keyof typeof angles] !== null).length
+            })
+            setRealtimeData(metricKey, { angles, metrics })
+            console.log(`[AI Insights] ✅ Metrics stored in realtimeData context with key: "${metricKey}"`)
             
             // Share metrics with all participants (including coach) via LiveKit data channel
             if (room && room.state === ConnectionState.Connected && room.localParticipant) {
@@ -1745,7 +1808,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
             const buffer = poseDataBufferRef.current.get(participantId)!;
             const sequenceNumber = buffer.length;
-          const timestamp = sequenceNumber * 3; // Each pose is 3 seconds apart (since we process every 3 seconds)
+          const timestamp = sequenceNumber * 1; // Each pose is 1 second apart (since we process every 1 second)
 
           // Add pose data to buffer
             const poseData: PoseData = {
@@ -2077,9 +2140,9 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       console.log(`[AI Insights] Movement analysis cycle complete at ${new Date().toISOString()}`)
     }
 
-    // Process pose detection every 3 seconds
+    // Process pose detection every 1 second
     // Start immediately if video elements are ready, otherwise wait
-    console.log('[AI Insights] Setting up pose detection interval (3 seconds)')
+    console.log('[AI Insights] Setting up pose detection interval (1 second)')
     console.log('[AI Insights] Video elements count:', videoElementsRef.current.size)
     
     // Start immediately if we have video elements, otherwise wait a bit
@@ -2097,7 +2160,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     
     frameCollectionIntervalRef.current = setInterval(() => {
       processPoseDetection()
-    }, 3000) // Every 3 seconds to reduce load
+    }, 1000) // Every 1 second for real-time updates
     
     // Flag was already set at the start, just confirm it
     console.log('[AI Insights] ✅ Pose detection intervals set up')
