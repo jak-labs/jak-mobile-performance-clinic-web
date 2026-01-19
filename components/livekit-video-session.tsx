@@ -34,6 +34,9 @@ import { ChatPanel } from "./chat-panel"
 import { CustomVideoControls } from "./custom-video-controls"
 import { RealtimeMetricsProvider, useRealtimeMetrics } from "@/lib/realtime-metrics-context"
 import { LiveMetricsTab } from "./live-metrics-tab"
+import { BaseballMetricsTab } from "./baseball-metrics-tab"
+import { BaseballInsightsPanel } from "./baseball-insights-panel"
+import { BaseballChatPanel } from "./baseball-chat-panel"
 
 type LayoutMode = 'default' | 'grid' | 'spotlight' | 'one-on-one'
 
@@ -1601,15 +1604,15 @@ function RoomContent({
                 Participants
               </TabsTrigger>
               <TabsTrigger value="chat" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
-                Chat
+                AI Coach Chat
               </TabsTrigger>
               <TabsTrigger value="live-metrics" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
-                Live Metrics
+                Baseball Metrics
               </TabsTrigger>
               {/* Only show Insights tab to coaches */}
               {localParticipant?.identity === sessionOwnerId && (
                 <TabsTrigger value="insights" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
-                  Insights
+                  Baseball Insights
                 </TabsTrigger>
               )}
             </TabsList>
@@ -1788,7 +1791,7 @@ function RoomContent({
             value="chat"
             className="flex-1 overflow-hidden mt-0 p-0 h-full"
           >
-            <ChatPanel
+            <BaseballChatPanel
               sessionId={sessionId}
               sessionOwnerId={sessionOwnerId}
               participantInfo={participantInfo}
@@ -1801,7 +1804,7 @@ function RoomContent({
             value="live-metrics"
             className="flex-1 overflow-hidden mt-0 p-0 h-full"
           >
-            <LiveMetricsTab
+            <BaseballMetricsTab
               participants={participants.map(p => ({
                 identity: p.identity,
                 name: participantInfo[p.identity]?.fullName || p.name || p.identity
@@ -1833,14 +1836,12 @@ function RoomContent({
               value="insights"
               className="flex-1 overflow-hidden mt-0 p-0 h-full"
             >
-              <AIInsightsPanel
+              <BaseballInsightsPanel
                 participants={participants.map(p => ({
                   identity: p.identity,
                   name: participantInfo[p.identity]?.fullName || p.name || p.identity
                 }))}
                 participantInfo={participantInfo}
-                sessionOwnerId={sessionOwnerId}
-                sessionId={sessionId}
                 sessionType={sessionType}
               />
             </TabsContent>
