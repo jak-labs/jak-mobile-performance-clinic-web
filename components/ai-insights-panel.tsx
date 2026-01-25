@@ -1141,6 +1141,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     }
 
     console.log(`[AI Insights] 🎥 Setting up video elements. Found ${tracks.length} camera tracks`)
+    const shouldAnalyzeCoach = sessionType === 'mocap' || room.remoteParticipants.size === 0
     
     // Helper function to create video element from a track
     const createVideoElementFromTrack = (participantId: string, track: Track, participant: any) => {
@@ -1216,8 +1217,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       
       allParticipants.forEach(p => {
         // For mocap sessions: process coach's video (coach points camera at athlete)
-        // For other sessions: skip coach - only analyze participants
-        if (sessionType !== 'mocap' && p.identity === sessionOwnerId) {
+        // For other sessions: skip coach - only analyze participants (unless coach is alone)
+        if (p.identity === sessionOwnerId && !shouldAnalyzeCoach) {
           console.log(`[AI Insights] ⏭️ Skipping coach (${p.identity}) - only analyzing participants`)
           return
         }
@@ -1330,7 +1331,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
 
       // Create video elements for each track
       // For mocap sessions: include coach's track (coach points camera at athlete)
-      // For other sessions: exclude coach
+      // For other sessions: exclude coach unless they're alone
       tracks.forEach((trackRef) => {
       if (!trackRef.participant) {
         console.log('[AI Insights] ⚠️ Skipping track - missing participant')
@@ -1338,8 +1339,8 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       }
       
       // For mocap sessions: process coach's video (coach points camera at athlete)
-      // For other sessions: skip coach - only analyze participants
-      if (sessionType !== 'mocap' && trackRef.participant.identity === sessionOwnerId) {
+      // For other sessions: skip coach - only analyze participants (unless coach is alone)
+      if (trackRef.participant.identity === sessionOwnerId && !shouldAnalyzeCoach) {
         console.log(`[AI Insights] ⏭️ Skipping coach track (${trackRef.participant.identity}) - only analyzing participants`)
         return
       }
@@ -1455,7 +1456,13 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         if (!publication.isSubscribed) {
           publication.setSubscribed(true)
         }
-        // The useEffect will re-run when tracks change, so video element will be created
+        if (publication.track) {
+          if (participant.identity === sessionOwnerId && !shouldAnalyzeCoach) {
+            console.log(`[AI Insights] ⏭️ Skipping coach track (${participant.identity}) - only analyzing participants`)
+            return
+          }
+          createVideoElementFromTrack(participant.identity, publication.track, participant)
+        }
       }
     }
     
@@ -1463,7 +1470,11 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
     const handleTrackSubscribed = (track: any, publication: TrackPublication, participant: any) => {
       if (track.kind === 'video' && publication.source === Track.Source.Camera) {
         console.log(`[AI Insights] ✅ Camera track subscribed for ${participant.identity}`)
-        // The useEffect will re-run when tracks change
+        if (participant.identity === sessionOwnerId && !shouldAnalyzeCoach) {
+          console.log(`[AI Insights] ⏭️ Skipping coach track (${participant.identity}) - only analyzing participants`)
+          return
+        }
+        createVideoElementFromTrack(participant.identity, track, participant)
       }
     }
     
@@ -1636,17 +1647,10 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
         
         console.log(`[AI Insights] 🎯 Processing ${entries.length} participant(s) - will process first one this cycle`);
 
-        // For mocap sessions: process coach's video (coach points camera at athlete)
-        // For other sessions: process only participants (exclude coach)
+        // Process any available video element (including coach)
         const participantEntries = entries.filter(([pid]) => {
-          // In mocap sessions, coach's video should be processed (camera points at athlete)
-          if (sessionType === 'mocap') {
-            return true // Process all videos including coach in mocap sessions
-          }
-          // For non-mocap sessions: skip coach - only analyze participants
           if (pid === sessionOwnerId) {
-            console.log(`[AI Insights] ⏭️ Skipping coach (${pid}) in pose detection`)
-            return false
+            console.log(`[AI Insights] ▶️ Processing coach (${pid}) in pose detection`)
           }
           return true
         })

@@ -1606,6 +1606,9 @@ function RoomContent({
               <TabsTrigger value="chat" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
                 AI Coach Chat
               </TabsTrigger>
+              <TabsTrigger value="pose-metrics" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
+                Live Metrics
+              </TabsTrigger>
               <TabsTrigger value="live-metrics" className="flex-1 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:font-semibold">
                 Baseball Metrics
               </TabsTrigger>
@@ -1796,6 +1799,22 @@ function RoomContent({
               sessionOwnerId={sessionOwnerId}
               participantInfo={participantInfo}
               localParticipantId={localParticipant?.identity}
+            />
+          </TabsContent>
+
+          {/* Live Metrics Tab (YOLOv8/ONNX) */}
+          <TabsContent
+            value="pose-metrics"
+            className="flex-1 overflow-hidden mt-0 p-0 h-full"
+          >
+            <LiveMetricsTab
+              participants={participants.map(p => ({
+                identity: p.identity,
+                name: participantInfo[p.identity]?.fullName || p.name || p.identity
+              }))}
+              participantInfo={participantInfo}
+              sessionType={sessionType}
+              subjectId={sessionType === 'mocap' ? sessionSubjectId : null}
             />
           </TabsContent>
 

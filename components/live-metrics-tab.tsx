@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card"
 import { Activity, AlertCircle } from "lucide-react"
 import type { BiomechanicalAngles, BiomechanicalMetrics } from "@/lib/pose-detection"
 import { useRealtimeMetrics } from "@/lib/realtime-metrics-context"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 interface LiveMetricsTabProps {
   participants: Array<{ identity: string; name: string }>
@@ -15,10 +15,25 @@ interface LiveMetricsTabProps {
 
 export function LiveMetricsTab({ participants, participantInfo, sessionType, subjectId }: LiveMetricsTabProps) {
   const { realtimeData } = useRealtimeMetrics()
+  const [displayData, setDisplayData] = useState(realtimeData)
+  const latestDataRef = useRef(realtimeData)
+
+  useEffect(() => {
+    latestDataRef.current = realtimeData
+  }, [realtimeData])
+
+  // Refresh UI every 5 seconds to show latest metrics
+  useEffect(() => {
+    setDisplayData(latestDataRef.current)
+    const interval = setInterval(() => {
+      setDisplayData(latestDataRef.current)
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [])
   
   // Debug: Log realtimeData changes
   useEffect(() => {
-    const keys = Object.keys(realtimeData)
+    const keys = Object.keys(displayData)
     console.log(`[Live Metrics Tab] 📊 Realtime data check:`, {
       keys,
       keysCount: keys.length,
@@ -28,24 +43,24 @@ export function LiveMetricsTab({ participants, participantInfo, sessionType, sub
       isMocap: sessionType === 'mocap',
       data: keys.map(key => ({
         participantId: key,
-        hasAngles: !!realtimeData[key]?.angles,
-        hasMetrics: !!realtimeData[key]?.metrics,
-        balance: realtimeData[key]?.metrics?.balanceScore,
-        symmetry: realtimeData[key]?.metrics?.symmetryScore
+        hasAngles: !!displayData[key]?.angles,
+        hasMetrics: !!displayData[key]?.metrics,
+        balance: displayData[key]?.metrics?.balanceScore,
+        symmetry: displayData[key]?.metrics?.symmetryScore
       }))
     })
     
     // For mocap sessions, specifically check if subjectId has data
     if (sessionType === 'mocap' && subjectId) {
-      const hasSubjectData = realtimeData[subjectId]?.angles || realtimeData[subjectId]?.metrics
+      const hasSubjectData = displayData[subjectId]?.angles || displayData[subjectId]?.metrics
       console.log(`[Live Metrics Tab] 🎯 Mocap session check - subjectId "${subjectId}" has data:`, hasSubjectData)
       if (hasSubjectData) {
-        console.log(`[Live Metrics Tab] ✅ Found metrics for subjectId:`, realtimeData[subjectId])
+        console.log(`[Live Metrics Tab] ✅ Found metrics for subjectId:`, displayData[subjectId])
       } else {
         console.log(`[Live Metrics Tab] ⚠️ No metrics found for subjectId "${subjectId}" - checking all keys:`, keys)
       }
     }
-  }, [realtimeData, participants, sessionType, subjectId])
+  }, [displayData, participants, sessionType, subjectId])
 
   const formatAngle = (angle: number | null) => {
     if (angle === null) return "N/A"
@@ -64,26 +79,26 @@ export function LiveMetricsTab({ participants, participantInfo, sessionType, sub
   console.log(`[Live Metrics Tab] 🔍 Looking for metrics:`, {
     isMocapSession,
     subjectId,
-    realtimeDataKeys: Object.keys(realtimeData),
+    realtimeDataKeys: Object.keys(displayData),
     participants: participants.map(p => p.identity),
-    checkingSubjectId: isMocapSession && subjectId ? realtimeData[subjectId] : null
+    checkingSubjectId: isMocapSession && subjectId ? displayData[subjectId] : null
   })
   
   // Filter participants that have metrics
   // For mocap: check if subjectId has metrics, otherwise check participant identities
   const participantsWithMetrics = isMocapSession && subjectId
-    ? (realtimeData[subjectId]?.angles || realtimeData[subjectId]?.metrics)
+    ? (displayData[subjectId]?.angles || displayData[subjectId]?.metrics)
       ? (() => {
           console.log(`[Live Metrics Tab] ✅ Found metrics for subjectId "${subjectId}"`)
           return [{ identity: subjectId, name: participantInfo[subjectId]?.fullName || 'Athlete' }]
         })()
       : (() => {
           console.log(`[Live Metrics Tab] ⚠️ No metrics found for subjectId "${subjectId}" in realtimeData`)
-          console.log(`[Live Metrics Tab] Available keys:`, Object.keys(realtimeData))
+          console.log(`[Live Metrics Tab] Available keys:`, Object.keys(displayData))
           return []
         })()
     : participants.filter(p => {
-        const hasMetrics = realtimeData[p.identity]?.angles || realtimeData[p.identity]?.metrics
+        const hasMetrics = displayData[p.identity]?.angles || displayData[p.identity]?.metrics
         if (!hasMetrics) {
           console.log(`[Live Metrics Tab] ⚠️ No metrics for participant "${p.identity}"`)
         }
@@ -115,7 +130,7 @@ export function LiveMetricsTab({ participants, participantInfo, sessionType, sub
       </div>
 
       {participantsWithMetrics.map((participant) => {
-        const data = realtimeData[participant.identity]
+        const data = displayData[participant.identity]
         const angles = data?.angles || null
         const metrics = data?.metrics || null
         const participantName = participantInfo[participant.identity]?.fullName || participant.name || participant.identity
