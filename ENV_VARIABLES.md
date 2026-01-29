@@ -1,6 +1,6 @@
-# Environment Variables for Netlify Deployment
+# Environment Variables for Netlify and Amplify
 
-This document lists all required environment variables that need to be set in your Netlify dashboard.
+This document lists all required environment variables for Netlify and AWS Amplify.
 
 ## How to Set Environment Variables in Netlify
 
@@ -10,6 +10,15 @@ This document lists all required environment variables that need to be set in yo
 4. Click **Add a variable** for each variable below
 5. Add the variable name and value
 6. Click **Save**
+
+## How to Set Environment Variables in Amplify
+
+1. Go to the AWS Amplify Console
+2. Select your app and branch
+3. Go to **App settings** → **Environment variables**
+4. Click **Add variable** for each variable below
+5. Add the variable name and value
+6. Click **Save** and trigger a new build
 
 ## Required Environment Variables
 
@@ -39,7 +48,7 @@ NEXTAUTH_URL=https://your-site.netlify.app
 
 ### AWS Credentials
 
-**⚠️ IMPORTANT:** Netlify reserves `AWS_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` for its own use. Use the `JAK_` prefixed versions instead:
+**Netlify:** Netlify reserves `AWS_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` for its own use. Use the `JAK_` prefixed versions instead:
 
 ```env
 JAK_AWS_REGION=us-east-2
@@ -47,12 +56,14 @@ JAK_AWS_ACCESS_KEY_ID=your_aws_access_key_id
 JAK_AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
 ```
 
-**Note:** 
+**Amplify:** You can use either the standard `AWS_*` variables or the `JAK_AWS_*` variables (both are supported by the code).
+
+**Note:**
 - These credentials need permissions for:
   - DynamoDB (read/write access to your tables)
   - Cognito (AdminListGroupsForUser, AdminAddUserToGroup, AdminGetUser)
   - SES (SendEmail)
-- The code will fallback to `AWS_*` variables for local development, but use `JAK_AWS_*` in Netlify
+- The code will use `AWS_*` or `JAK_AWS_*` if present (Netlify should use `JAK_AWS_*`)
 
 ### DynamoDB Tables
 
@@ -84,6 +95,12 @@ NEXT_PUBLIC_LIVEKIT_URL=wss://your-livekit-server.com
 - `LIVEKIT_URL` and `LIVEKIT_API_SECRET` are server-side only
 - `NEXT_PUBLIC_LIVEKIT_URL` is exposed to the client
 
+### S3 Bucket for Session Videos
+
+```env
+S3_BUCKET_NAME=jak-mpc-recorded-sessions-subjects-only
+```
+
 ## Complete Example
 
 Here's a complete example of all variables (with placeholder values):
@@ -97,7 +114,7 @@ COGNITO_ISSUER=https://cognito-idp.us-east-2.amazonaws.com/us-east-2_AbCdEfGhI
 NEXTAUTH_SECRET=your-super-secret-key-min-32-characters-long
 NEXTAUTH_URL=https://your-app-name.netlify.app
 
-# AWS (use JAK_ prefix for Netlify - AWS_* are reserved)
+# AWS (Netlify uses JAK_ prefix, Amplify can use AWS_* or JAK_*)
 JAK_AWS_REGION=us-east-2
 JAK_AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 JAK_AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
@@ -121,13 +138,13 @@ S3_BUCKET_NAME=jak-mpc-recorded-sessions-subjects-only
 
 1. **Never commit** `.env.local` or `.env` files to git
 2. All these variables are **sensitive** - keep them secure
-3. Use Netlify's **encrypted environment variables** feature
-4. Consider using **Netlify's environment variable scoping** (Build-time vs Runtime)
+3. Use encrypted environment variables in your hosting provider
+4. Consider environment variable scoping if available
 
 ## Testing
 
 After setting the variables:
-1. Trigger a new deployment in Netlify
+1. Trigger a new deployment in Netlify or Amplify
 2. Check the build logs to ensure the build succeeds
 3. Test the application functionality:
    - Sign up / Sign in

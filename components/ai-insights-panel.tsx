@@ -2223,7 +2223,7 @@ export function AIInsightsPanel({ participants, participantInfo, sessionOwnerId,
       // Keep __poseDetectionSetup = true so UI doesn't show "waiting" message
       console.log('[AI Insights] Cleanup: Resetting setupCompleteRef but keeping __poseDetectionSetup flag')
     }
-  }, [room, room?.state]) // Depend on room and room state - will re-run when room connects
+  }, [room, room?.state, sessionType]) // Depend on room, room state, and session type
 
   // Group insights by participant
   // For mocap sessions: insights are already attributed to subject_id, so don't filter by sessionOwnerId

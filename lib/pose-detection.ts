@@ -1,5 +1,23 @@
 // ONNX Runtime Web + YOLOv8-Pose Detection
-import * as ort from 'onnxruntime-web';
+type OrtModule = typeof import('onnxruntime-web');
+type InferenceSession = import('onnxruntime-web').InferenceSession;
+type OrtTensor = import('onnxruntime-web').Tensor;
+
+let ortModule: OrtModule | null = null;
+let ortModulePromise: Promise<OrtModule> | null = null;
+
+async function getOrt(): Promise<OrtModule> {
+  if (ortModule) {
+    return ortModule;
+  }
+  if (!ortModulePromise) {
+    ortModulePromise = import('onnxruntime-web').then((mod) => {
+      ortModule = mod;
+      return mod;
+    });
+  }
+  return ortModulePromise;
+}
 
 export interface PoseKeypoint {
   id: number;
@@ -62,7 +80,7 @@ export const POSE_LANDMARKS = {
 
 // Type for ONNX session
 export type PoseDetector = {
-  session: ort.InferenceSession;
+  session: InferenceSession;
   inputShape: [number, number, number, number];
 };
 
@@ -136,6 +154,7 @@ export async function createPoseDetector(): Promise<PoseDetector> {
       await new Promise(resolve => setTimeout(resolve, 100));
       
       // Set up ONNX Runtime Web
+      const ort = await getOrt();
       ort.env.wasm.numThreads = 1; // Use single thread for stability
       ort.env.wasm.simd = true; // Enable SIMD for better performance
       
@@ -249,7 +268,7 @@ function preprocessImage(
  * Postprocess YOLOv8-Pose output to extract keypoints
  */
 function postprocessOutput(
-  output: ort.Tensor,
+  output: OrtTensor,
   originalWidth: number,
   originalHeight: number,
   inputSize: number = MODEL_INPUT_SIZE
@@ -348,6 +367,7 @@ export async function estimatePoses(
   }
   
   try {
+    const ort = await getOrt();
     // Preprocess image
     const inputTensor = preprocessImage(videoElement, MODEL_INPUT_SIZE);
     
