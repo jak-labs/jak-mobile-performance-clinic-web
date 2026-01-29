@@ -45,7 +45,7 @@ export default function Home() {
             </div>
             <CardTitle className="text-3xl font-bold">Welcome to JAK Labs</CardTitle>
             <CardDescription className="text-lg font-semibold text-primary">
-              Unlock Your Movement Potential
+              Unlock Your Movement Potential!
             </CardDescription>
             <CardDescription className="text-base">
               Get started by selecting your account type
